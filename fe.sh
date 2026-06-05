@@ -56,7 +56,7 @@ fe() {
             --header="  ${dir}" \
             --height=20 \
             --ansi \
-            --expect="right,ctrl-f" \
+            --expect="right,ctrl-l,ctrl-f" \
         ) || return 0
 
         key=$(printf '%s' "$output" | head -1)
@@ -95,7 +95,7 @@ fe() {
         local target="$dir/$name"
 
         # right arrow → action menu (works on both files and dirs)
-        if [[ "$key" == "right" ]]; then
+        if [[ "$key" == "right" || "$key" == "ctrl-l" ]]; then
             _fe_action "$target" "$dir"
             continue
         fi
