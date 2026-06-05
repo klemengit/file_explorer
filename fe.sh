@@ -89,7 +89,12 @@ fe() {
                 continue
                 ;;
             \[paste*)
-                _fe_paste "$dir"
+                local clip_action
+                clip_action=$(gum choose "paste here" "dismiss") || continue
+                case "$clip_action" in
+                    "paste here") _fe_paste "$dir" ;;
+                    "dismiss")    rm -f "$_FE_CLIP" ;;
+                esac
                 continue
                 ;;
         esac
