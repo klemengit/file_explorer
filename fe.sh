@@ -19,7 +19,7 @@ _FE_RST='\033[0m'
 _FE_FZF_OPTS=(
     --color "fg:#c0caf5,bg:-1,hl:#e0af68"
     --color "fg+:#c0caf5,bg+:#283457,hl+:#e0af68"
-    --color "prompt:#7aa2f7,pointer:#7aa2f7,marker:#9ece6a"
+    --color "prompt:#7aa2f7,pointer:#7aa2f7,marker:#9ece6a,gutter:-1"
     --color "info:#565f89,header:#7aa2f7,border:#565f89"
     --layout=reverse
     --border=rounded
