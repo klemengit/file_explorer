@@ -57,6 +57,9 @@ fe() {
             --height=20 \
             --ansi \
             --expect="right,ctrl-l,ctrl-f" \
+            --border-label="  ↑↓ navigate  ·  enter: open  ·  ctrl-l: actions  ·  ctrl-f: search  " \
+            --border-label-pos="0:bottom" \
+            --color "label:#565f89" \
         ) || return 0
 
         key=$(printf '%s' "$output" | head -1)
