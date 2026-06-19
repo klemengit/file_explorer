@@ -96,6 +96,7 @@ to command mode.
 | `z`       | zip a file/dir, or unzip a `.zip`        |
 | `s`       | filter the current directory             |
 | `f`       | deep recursive find (from current dir)   |
+| `?`       | toggle the help panel                    |
 | `q` / `ctrl-c` | quit                                |
 
 `enter`/`l` open files in the **default application** (`xdg-open`). Use `e` to

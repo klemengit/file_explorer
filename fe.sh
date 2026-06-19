@@ -36,7 +36,7 @@ _FE_FZF_OPTS=(
 )
 
 # Keys that are commands in command mode but must type literally while filtering.
-_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,q"
+_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,?,q"
 
 # ── main ──────────────────────────────────────────────────────────────────────
 fe() {
@@ -48,8 +48,21 @@ fe() {
     local dir
     dir=$(realpath "${1:-$PWD}") || return 1
 
-    local state
+    local state help
     state=$(mktemp "${TMPDIR:-/tmp}/.fe_state.XXXXXX") || return 1
+    help=$(mktemp "${TMPDIR:-/tmp}/.fe_help.XXXXXX")  || return 1
+    cat > "$help" <<'FEHELP'
+
+  fe — keybindings
+
+  Navigate     h parent  ·  j / k down · up  ·  l / enter open
+  Open         enter open (default app)  ·  O open with…  ·  e nvim
+  Clipboard    y yank (copy)  ·  x cut  ·  p paste here
+  Manage       d delete  ·  r rename  ·  z zip / unzip
+  Search       s filter (type; esc exits)  ·  f deep find
+  Help / quit  ? toggle help  ·  q quit
+
+FEHELP
 
     # Command-mode key bindings. Each action writes a verb to $state then accepts,
     # so the loop below knows what was pressed alongside the highlighted item.
@@ -70,13 +83,14 @@ fe() {
         "z:execute-silent(printf zip > '$state')+accept"
         "f:execute-silent(printf find > '$state')+accept"
         "q:execute-silent(printf quit > '$state')+accept"
+        "?:toggle-preview"
         "s:enable-search+change-prompt(/ )+unbind($_FE_KEYS)"
         "esc:disable-search+clear-query+change-prompt(  )+rebind($_FE_KEYS)"
     )
     local bind_args=() b
     for b in "${binds[@]}"; do bind_args+=(--bind "$b"); done
 
-    local hint="  h ← · j ↓ · k ↑ · l →   |   ↵ open · O with · e nvim · y x p d r z · s filter · f find · q quit  "
+    local hint="  hjkl move · enter open · s filter · f find · ? help · q quit  "
 
     while true; do
         local list
@@ -99,17 +113,19 @@ fe() {
             --ansi \
             --height=20 \
             --header="  ${dir}" \
+            --preview="cat '$help'" \
+            --preview-window="down,45%,wrap,border-top,hidden" \
             --border-label="$hint" \
             --border-label-pos="0:bottom" \
             --color "label:#565f89" \
-        ) || { rm -f "$state"; return 0; }
+        ) || { rm -f "$state" "$help"; return 0; }
 
         action=$(cat "$state")
         clean=$(printf '%s' "$pick" | sed 's/\x1b\[[0-9;]*[mK]//g')
 
         case "$action" in
             quit)
-                rm -f "$state"; return 0
+                rm -f "$state" "$help"; return 0
                 ;;
             parent)
                 local parent; parent=$(dirname "$dir")
