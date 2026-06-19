@@ -53,17 +53,27 @@ fe() {
     state=$(mktemp "${TMPDIR:-/tmp}/.fe_state.XXXXXX") || return 1
     help=$(mktemp "${TMPDIR:-/tmp}/.fe_help.XXXXXX")  || return 1
     cat > "$help" <<'FEHELP'
-
   fe — keybindings
 
-  Navigate     h parent  ·  j / k down · up  ·  l / enter open
-  Open         enter open (default app)  ·  O open with…  ·  e nvim
-  Clipboard    y yank (copy)  ·  x cut  ·  p paste here
-  Manage       d delete  ·  r rename  ·  z zip / unzip
-  Search       s filter (type; esc exits)  ·  f deep find
-  Bookmarks    m bookmark this dir  ·  b jump (ctrl-d deletes)
-  Help / quit  ? toggle help  ·  q quit
-
+  h        parent dir
+  j        down
+  k        up
+  l        enter dir / open
+  enter    open (default app)
+  O        open with…
+  e        edit in nvim
+  y        yank (copy)
+  x        cut
+  p        paste here
+  d        delete
+  r        rename
+  z        zip / unzip
+  s        filter (type; esc to exit)
+  f        deep find
+  m        bookmark dir
+  b        jump to bookmark
+  ?        toggle help
+  q        quit
 FEHELP
 
     # Command-mode key bindings. Each action writes a verb to $state then accepts,
@@ -89,7 +99,7 @@ FEHELP
         "q:execute-silent(printf quit > '$state')+accept"
         "?:toggle-preview"
         "s:enable-search+change-prompt(/ )+unbind($_FE_KEYS)"
-        "esc:disable-search+clear-query+change-prompt(  )+rebind($_FE_KEYS)"
+        "esc:hide-preview+disable-search+clear-query+change-prompt(  )+rebind($_FE_KEYS)"
     )
     local bind_args=() b
     for b in "${binds[@]}"; do bind_args+=(--bind "$b"); done
@@ -115,10 +125,10 @@ FEHELP
             "${bind_args[@]}" \
             --disabled \
             --ansi \
-            --height=20 \
+            --height=22 \
             --header="  ${dir}" \
             --preview="cat '$help'" \
-            --preview-window="down,45%,wrap,border-top,hidden" \
+            --preview-window="right,50%,wrap,border-left,hidden" \
             --border-label="$hint" \
             --border-label-pos="0:bottom" \
             --color "label:#565f89" \
