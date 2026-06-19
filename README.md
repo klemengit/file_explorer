@@ -96,6 +96,8 @@ to command mode.
 | `z`       | zip a file/dir, or unzip a `.zip`        |
 | `s`       | filter the current directory             |
 | `f`       | deep recursive find (from current dir)   |
+| `m`       | bookmark the current directory           |
+| `b`       | jump to a bookmark (`ctrl-d` deletes)    |
 | `?`       | toggle the help panel                    |
 | `q` / `ctrl-c` | quit                                |
 
@@ -117,6 +119,13 @@ open in `nvim`.
 - `[paste …]` — appears when the clipboard holds something. Selecting it offers
   **paste here** or **dismiss** (clears the clipboard). You can also paste
   anywhere with `p`.
+
+### Bookmarks
+
+Press `m` to bookmark the current directory and `b` to open a picker of saved
+bookmarks (`enter` jumps to one, `ctrl-d` deletes the highlighted one). Stale
+bookmarks (deleted directories) are reported when you try to jump. Bookmarks are
+stored one path per line in `${XDG_DATA_HOME:-~/.local/share}/fe/bookmarks`.
 
 ## How it works
 
