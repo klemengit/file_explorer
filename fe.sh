@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # fe — CLI file explorer
-# Requires: gum, fzf
+# Requires: gum, fzf  (optional: fd, nvim, xdg-open, zip/unzip)
 # Source from your shell rc: source /path/to/fe.sh
+#
+# Command mode (default — letters are commands, not search):
+#   h ← parent   j ↓   k ↑   l → enter/open
+#   enter open · O open-with · e nvim
+#   y yank · x cut · p paste · d delete · r rename · z zip/unzip
+#   s filter (type to narrow) · f deep find · q quit
+# Press s to filter the current dir; esc returns to command mode.
 
 _FE_SH_PATH="${BASH_SOURCE[0]}"
 _FE_CLIP="${XDG_RUNTIME_DIR:-/tmp}/.fe_clip"
@@ -28,6 +35,9 @@ _FE_FZF_OPTS=(
     --marker="✓"
 )
 
+# Keys that are commands in command mode but must type literally while filtering.
+_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,q"
+
 # ── main ──────────────────────────────────────────────────────────────────────
 fe() {
     if ! command -v gum &>/dev/null; then
@@ -37,6 +47,36 @@ fe() {
 
     local dir
     dir=$(realpath "${1:-$PWD}") || return 1
+
+    local state
+    state=$(mktemp "${TMPDIR:-/tmp}/.fe_state.XXXXXX") || return 1
+
+    # Command-mode key bindings. Each action writes a verb to $state then accepts,
+    # so the loop below knows what was pressed alongside the highlighted item.
+    # s flips fzf into search mode (letters type); esc flips back.
+    local binds=(
+        "j:down"
+        "k:up"
+        "h:execute-silent(printf parent > '$state')+accept"
+        "l:execute-silent(printf into > '$state')+accept"
+        "enter:execute-silent(printf open > '$state')+accept"
+        "O:execute-silent(printf openwith > '$state')+accept"
+        "e:execute-silent(printf nvim > '$state')+accept"
+        "y:execute-silent(printf yank > '$state')+accept"
+        "x:execute-silent(printf cut > '$state')+accept"
+        "p:execute-silent(printf paste > '$state')+accept"
+        "d:execute-silent(printf delete > '$state')+accept"
+        "r:execute-silent(printf rename > '$state')+accept"
+        "z:execute-silent(printf zip > '$state')+accept"
+        "f:execute-silent(printf find > '$state')+accept"
+        "q:execute-silent(printf quit > '$state')+accept"
+        "s:enable-search+change-prompt(/ )+unbind($_FE_KEYS)"
+        "esc:disable-search+clear-query+change-prompt(  )+rebind($_FE_KEYS)"
+    )
+    local bind_args=() b
+    for b in "${binds[@]}"; do bind_args+=(--bind "$b"); done
+
+    local hint="  h ← · j ↓ · k ↑ · l →   |   ↵ open · O with · e nvim · y x p d r z · s filter · f find · q quit  "
 
     while true; do
         local list
@@ -50,50 +90,65 @@ fe() {
             _fe_ls "$dir"
         )
 
-        local output key pick clean
-        output=$(printf '%s\n' "$list" | fzf \
+        : > "$state"
+        local pick action clean
+        pick=$(printf '%s\n' "$list" | fzf \
             "${_FE_FZF_OPTS[@]}" \
-            --header="  ${dir}" \
-            --height=20 \
+            "${bind_args[@]}" \
+            --disabled \
             --ansi \
-            --expect="right,ctrl-l,ctrl-f" \
-            --border-label="  ↑↓ navigate  ·  enter: open  ·  ctrl-l: actions  ·  ctrl-f: search  " \
+            --height=20 \
+            --header="  ${dir}" \
+            --border-label="$hint" \
             --border-label-pos="0:bottom" \
             --color "label:#565f89" \
-        ) || return 0
+        ) || { rm -f "$state"; return 0; }
 
-        key=$(printf '%s' "$output" | head -1)
-        pick=$(printf '%s' "$output" | sed -n '2p')
-        [[ -z "$pick" ]] && return 0
+        action=$(cat "$state")
         clean=$(printf '%s' "$pick" | sed 's/\x1b\[[0-9;]*[mK]//g')
 
-        # ctrl-f → deep search
-        if [[ "$key" == "ctrl-f" ]]; then
-            local found
-            found=$(_fe_fzf "$dir") || continue
-            [[ -z "$found" ]] && continue
-            if [[ -d "$found" ]]; then
-                dir="$found"
-            else
-                dir=$(dirname "$found")
-            fi
-            cd "$dir"
-            continue
-        fi
-
-        case "$clean" in
-            "..")
-                local parent
-                parent=$(dirname "$dir")
+        case "$action" in
+            quit)
+                rm -f "$state"; return 0
+                ;;
+            parent)
+                local parent; parent=$(dirname "$dir")
                 [[ "$parent" != "$dir" ]] && { dir="$parent"; cd "$dir"; }
                 continue
                 ;;
+            find)
+                local found
+                found=$(_fe_fzf "$dir") || continue
+                [[ -z "$found" ]] && continue
+                if [[ -d "$found" ]]; then dir="$found"; else dir=$(dirname "$found"); fi
+                cd "$dir"
+                continue
+                ;;
+        esac
+
+        [[ -z "$clean" ]] && continue
+
+        # special rows
+        case "$clean" in
+            "..")
+                case "$action" in
+                    into|open|"")
+                        local parent; parent=$(dirname "$dir")
+                        [[ "$parent" != "$dir" ]] && { dir="$parent"; cd "$dir"; }
+                        ;;
+                esac
+                continue
+                ;;
             \[paste*)
-                local clip_action
-                clip_action=$(gum choose "paste here" "dismiss") || continue
-                case "$clip_action" in
-                    "paste here") _fe_paste "$dir" ;;
-                    "dismiss")    rm -f "$_FE_CLIP" ;;
+                case "$action" in
+                    into|open|paste|"")
+                        local clip_action
+                        clip_action=$(gum choose "paste here" "dismiss") || continue
+                        case "$clip_action" in
+                            "paste here") _fe_paste "$dir" ;;
+                            "dismiss")    rm -f "$_FE_CLIP" ;;
+                        esac
+                        ;;
                 esac
                 continue
                 ;;
@@ -102,18 +157,19 @@ fe() {
         local name="${clean%/}"
         local target="$dir/$name"
 
-        # right arrow → action menu (works on both files and dirs)
-        if [[ "$key" == "right" || "$key" == "ctrl-l" ]]; then
-            _fe_action "$target" "$dir"
-            continue
-        fi
-
-        # Enter: dirs navigate, files open in nvim
-        if [[ -d "$target" ]]; then
-            dir="$target"; cd "$dir"
-        elif [[ -e "$target" ]]; then
-            nvim "$target"
-        fi
+        case "$action" in
+            into|open|"")
+                # enter / l: dirs navigate in, files open in the default app
+                if [[ -d "$target" ]]; then
+                    dir="$target"; cd "$dir"
+                elif [[ -e "$target" ]]; then
+                    xdg-open "$target" &>/dev/null &
+                fi
+                ;;
+            *)
+                _fe_do "$action" "$target" "$dir"
+                ;;
+        esac
     done
 }
 
@@ -130,60 +186,34 @@ _fe_ls() {
         | sort -f
 }
 
-# ── action menu ───────────────────────────────────────────────────────────────
-_fe_action() {
-    local file="$1" dir="$2"
+# ── file action ───────────────────────────────────────────────────────────────
+_fe_do() {
+    local action="$1" file="$2" dir="$3"
     local name
     name=$(basename "$file")
 
-    local items=(
-        "o  open"
-        "e  nvim"
-        "O  open with…"
-        "y  yank (copy)"
-        "x  cut"
-        "p  paste here"
-        "d  delete"
-        "r  rename"
-        "z  zip / unzip"
-    )
-
-    local output key
-    output=$(printf '%s\n' "${items[@]}" | fzf \
-        "${_FE_FZF_OPTS[@]}" \
-        --header="  $name" \
-        --height=13 \
-        --no-sort \
-        --expect="o,e,O,y,x,p,d,r,z" \
-    ) || return 0
-
-    key=$(printf '%s' "$output" | head -1)
-    [[ -z "$key" ]] && key=$(printf '%s' "$output" | sed -n '2p' | cut -c1)
-    [[ -z "$key" ]] && return 0
-
-    case "$key" in
-        o) xdg-open "$file" &>/dev/null & ;;
-        e) nvim "$file" ;;
-        O)
+    case "$action" in
+        openwith)
             local cmd
             cmd=$(gum input --placeholder="command…" --prompt="  ") || return 0
             [[ -n "$cmd" ]] && $cmd "$file" &
             ;;
-        y) echo "copy:$file" > "$_FE_CLIP"
-           gum log --level info "Yanked: $name" ;;
-        x) echo "cut:$file" > "$_FE_CLIP"
-           gum log --level warn "Cut: $name" ;;
-        p) _fe_paste "$dir" ;;
-        d)
+        nvim) nvim "$file" ;;
+        yank) echo "copy:$file" > "$_FE_CLIP"
+              gum log --level info "Yanked: $name" ;;
+        cut)  echo "cut:$file" > "$_FE_CLIP"
+              gum log --level warn "Cut: $name" ;;
+        paste) _fe_paste "$dir" ;;
+        delete)
             gum confirm --prompt.foreground="#f7768e" "Delete '$name'?" \
             && { rm -rf "$file"; gum log --level warn "Deleted: $name"; }
             ;;
-        r)
+        rename)
             local new
             new=$(gum input --value="$name" --placeholder="new name…" --prompt="  ") || return 0
             [[ -n "$new" && "$new" != "$name" ]] && mv "$file" "$dir/$new"
             ;;
-        z)
+        zip)
             if [[ "$file" == *.zip ]]; then
                 unzip -q "$file" -d "${file%.zip}"
                 gum log --level info "Unzipped: ${name%.zip}/"
