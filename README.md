@@ -22,16 +22,35 @@ leaves you in the directory you were browsing.
 
 ## Install
 
+### One-liner
+
+Install `fzf` and `gum` first (see [Requirements](#requirements)), then:
+
 ```bash
-git clone <repo-url> file_exp
-cd file_exp
+wget -qO- https://raw.githubusercontent.com/klemengit/file_explorer/main/install.sh | bash
+```
+
+or with curl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/klemengit/file_explorer/main/install.sh | bash
+```
+
+This downloads `fe.sh` into `~/.local/share/fe/` and adds a `source` line to your
+shell rc (`~/.bashrc` or `~/.zshrc`).
+
+### From a clone
+
+```bash
+git clone https://github.com/klemengit/file_explorer.git
+cd file_explorer
 ./install.sh
 ```
 
-`install.sh` checks dependencies, then adds a `source` line for `fe.sh` to your
-shell rc (`~/.bashrc` or `~/.zshrc`). It is idempotent — safe to re-run.
+`install.sh` checks dependencies, then adds a `source` line for the local
+`fe.sh` to your shell rc. It is idempotent — safe to re-run.
 
-Then reload your shell:
+Either way, reload your shell afterwards:
 
 ```bash
 source ~/.bashrc   # or ~/.zshrc
@@ -39,10 +58,10 @@ source ~/.bashrc   # or ~/.zshrc
 
 ### Manual install
 
-Add this to your shell rc, pointing at wherever you cloned the repo:
+Add this to your shell rc, pointing at wherever `fe.sh` lives:
 
 ```bash
-source /path/to/file_exp/fe.sh
+source /path/to/fe.sh
 ```
 
 ## Usage

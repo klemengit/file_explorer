@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
 # install.sh — wire fe.sh into your shell rc.
+#
+# Works two ways:
+#   • From a clone:   ./install.sh                 (uses the fe.sh next to it)
+#   • Piped remotely: wget -qO- <raw>/install.sh | bash
+#                     curl -fsSL <raw>/install.sh | bash
+#                     (downloads fe.sh into ~/.local/share/fe/)
+#
 # Idempotent: safe to run more than once.
 set -euo pipefail
 
-# Resolve the absolute path to fe.sh sitting next to this script.
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)
-FE_PATH="$SCRIPT_DIR/fe.sh"
+FE_REPO_RAW="${FE_REPO_RAW:-https://raw.githubusercontent.com/klemengit/file_explorer/main}"
+INSTALL_DIR="${FE_INSTALL_DIR:-$HOME/.local/share/fe}"
 
-if [[ ! -f "$FE_PATH" ]]; then
-    echo "install: fe.sh not found at $FE_PATH" >&2
-    exit 1
-fi
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")
+
+_fetch() {  # _fetch URL DEST
+    if command -v curl &>/dev/null; then
+        curl -fsSL "$1" -o "$2"
+    elif command -v wget &>/dev/null; then
+        wget -qO "$2" "$1"
+    else
+        echo "install: need curl or wget to download fe.sh" >&2
+        return 1
+    fi
+}
 
 # ── dependency check ──────────────────────────────────────────────────────────
 missing=()
@@ -32,6 +46,19 @@ for opt in nvim fd xdg-open zip unzip; do
         echo "  · $opt (not found)"
     fi
 done
+echo
+
+# ── locate fe.sh (local clone) or download it ─────────────────────────────────
+if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/fe.sh" ]]; then
+    FE_PATH="$SCRIPT_DIR/fe.sh"
+    echo "Using local fe.sh: $FE_PATH"
+else
+    mkdir -p "$INSTALL_DIR"
+    FE_PATH="$INSTALL_DIR/fe.sh"
+    echo "Downloading fe.sh → $FE_PATH"
+    _fetch "$FE_REPO_RAW/fe.sh" "$FE_PATH" \
+        || { echo "install: failed to download $FE_REPO_RAW/fe.sh" >&2; exit 1; }
+fi
 echo
 
 # ── pick the shell rc ─────────────────────────────────────────────────────────
