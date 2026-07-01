@@ -342,6 +342,7 @@ _fe_fzf() {
 
 # ── recent files ──────────────────────────────────────────────────────────────
 # The N most-recently-modified files under $dir (recursive, skipping dotfiles).
+# Opens in command mode (like the main list); press / to filter, esc to leave it.
 _fe_recent() {
     local dir="$1"
     local sel
@@ -349,8 +350,12 @@ _fe_recent() {
         | sort -rn | head -n "$_FE_RECENT_N" | cut -d' ' -f2- \
         | sed "s|^$dir/||" \
         | fzf "${_FE_FZF_OPTS[@]}" \
+              --disabled \
               --height=40% \
-              --header="  ${_FE_RECENT_N} latest  ·  $dir" \
+              --header="  ${_FE_RECENT_N} newest  ·  j/k move · / filter · enter open · q quit" \
+              --bind "j:down,k:up,q:abort" \
+              --bind "/:enable-search+change-prompt(/ )+unbind(j,k,q,/)" \
+              --bind "esc:disable-search+clear-query+change-prompt(  )+rebind(j,k,q,/)" \
     ) || return 1
     [[ -n "$sel" ]] && echo "$dir/$sel"
 }
