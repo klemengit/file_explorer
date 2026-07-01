@@ -99,7 +99,7 @@ to command mode.
 | `.`       | show / hide dotfiles                     |
 | `D`       | show / hide directories                  |
 | `f`       | deep recursive find (from current dir)   |
-| `R`       | 10 latest files (recursive, newest first)|
+| `n`       | 10 newest files (recursive, newest first)|
 | `m`       | bookmark the current directory           |
 | `b`       | jump to a bookmark (`ctrl-d` deletes)    |
 | `?`       | toggle the help panel                    |

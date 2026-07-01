@@ -7,14 +7,14 @@
 #   h ← parent   j ↓   k ↑   l → enter/open
 #   enter open · O open-with · e nvim
 #   y yank · x cut · p paste · d delete · r rename · z zip/unzip
-#   s / filter (type to narrow) · f deep find · R 10 latest files · q quit
+#   s / filter (type to narrow) · f deep find · n 10 newest files · q quit
 #   t sort name/modified · . show/hide dotfiles · D show/hide dirs
 # Press s or / to filter the current dir; esc returns to command mode.
 
 _FE_SH_PATH="${BASH_SOURCE[0]}"
 _FE_CLIP="${XDG_RUNTIME_DIR:-/tmp}/.fe_clip"
 _FE_MARKS="${XDG_DATA_HOME:-$HOME/.local/share}/fe/bookmarks"
-_FE_RECENT_N=10   # how many latest files R shows
+_FE_RECENT_N=10   # how many newest files n shows
 
 # ── Tokyo Night palette ───────────────────────────────────────────────────────
 _FE_B='\033[38;2;122;162;247m'
@@ -39,7 +39,7 @@ _FE_FZF_OPTS=(
 )
 
 # Keys that are commands in command mode but must type literally while filtering.
-_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,m,b,?,q,t,.,D,/,R"
+_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,m,b,?,q,t,.,D,/,n"
 
 # ── main ──────────────────────────────────────────────────────────────────────
 fe() {
@@ -78,7 +78,7 @@ fe() {
   .        show / hide dotfiles
   D        show / hide directories
   f        deep find
-  R        10 latest files (recursive)
+  n        10 newest files (recursive)
   m        bookmark dir
   b        jump to bookmark
   ?        toggle help
@@ -103,7 +103,7 @@ FEHELP
         "r:execute-silent(printf rename > '$state')+accept"
         "z:execute-silent(printf zip > '$state')+accept"
         "f:execute-silent(printf find > '$state')+accept"
-        "R:execute-silent(printf recent > '$state')+accept"
+        "n:execute-silent(printf recent > '$state')+accept"
         "m:execute-silent(printf mark > '$state')+accept"
         "b:execute-silent(printf jump > '$state')+accept"
         "t:execute-silent(printf sort > '$state')+accept"
@@ -118,7 +118,7 @@ FEHELP
     local bind_args=() b
     for b in "${binds[@]}"; do bind_args+=(--bind "$b"); done
 
-    local hint="  hjkl move · / filter · t sort · . dots · D dirs · f find · R recent · ? help · q quit  "
+    local hint="  hjkl move · / filter · t sort · . dots · D dirs · f find · n newest · ? help · q quit  "
 
     while true; do
         local list
