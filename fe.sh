@@ -7,8 +7,9 @@
 #   h ← parent   j ↓   k ↑   l → enter/open
 #   enter open · O open-with · e nvim
 #   y yank · x cut · p paste · d delete · r rename · z zip/unzip
-#   s filter (type to narrow) · f deep find · q quit
-# Press s to filter the current dir; esc returns to command mode.
+#   s / filter (type to narrow) · f deep find · q quit
+#   t sort name/modified · . show/hide dotfiles · D show/hide dirs
+# Press s or / to filter the current dir; esc returns to command mode.
 
 _FE_SH_PATH="${BASH_SOURCE[0]}"
 _FE_CLIP="${XDG_RUNTIME_DIR:-/tmp}/.fe_clip"
@@ -37,7 +38,7 @@ _FE_FZF_OPTS=(
 )
 
 # Keys that are commands in command mode but must type literally while filtering.
-_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,m,b,?,q"
+_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,m,b,?,q,t,.,D,/"
 
 # ── main ──────────────────────────────────────────────────────────────────────
 fe() {
@@ -48,6 +49,9 @@ fe() {
 
     local dir
     dir=$(realpath "${1:-$PWD}") || return 1
+
+    # view toggles: name|time sort, show dirs, show dotfiles
+    local sort_mode=name show_dirs=1 show_dots=0
 
     local state help
     state=$(mktemp "${TMPDIR:-/tmp}/.fe_state.XXXXXX") || return 1
@@ -68,7 +72,10 @@ fe() {
   d        delete
   r        rename
   z        zip / unzip
-  s        filter (type; esc to exit)
+  s  /     filter (type; esc to exit)
+  t        sort by name / modified
+  .        show / hide dotfiles
+  D        show / hide directories
   f        deep find
   m        bookmark dir
   b        jump to bookmark
@@ -96,15 +103,19 @@ FEHELP
         "f:execute-silent(printf find > '$state')+accept"
         "m:execute-silent(printf mark > '$state')+accept"
         "b:execute-silent(printf jump > '$state')+accept"
+        "t:execute-silent(printf sort > '$state')+accept"
+        "D:execute-silent(printf toggledirs > '$state')+accept"
+        ".:execute-silent(printf toggledots > '$state')+accept"
         "q:execute-silent(printf quit > '$state')+accept"
         "?:toggle-preview"
         "s:enable-search+change-prompt(/ )+unbind($_FE_KEYS)"
+        "/:enable-search+change-prompt(/ )+unbind($_FE_KEYS)"
         "esc:hide-preview+disable-search+clear-query+change-prompt(  )+rebind($_FE_KEYS)"
     )
     local bind_args=() b
     for b in "${binds[@]}"; do bind_args+=(--bind "$b"); done
 
-    local hint="  hjkl move · enter open · s filter · f find · ? help · q quit  "
+    local hint="  hjkl move · / filter · t sort · . dots · D dirs · f find · ? help · q quit  "
 
     while true; do
         local list
@@ -115,7 +126,7 @@ FEHELP
                     "$(cut -d: -f1 "$_FE_CLIP")" \
                     "$(basename "$(cut -d: -f2- "$_FE_CLIP")")"
             fi
-            _fe_ls "$dir"
+            _fe_ls "$dir" "$sort_mode" "$show_dirs" "$show_dots"
         )
 
         : > "$state"
@@ -175,6 +186,18 @@ FEHELP
                 fi
                 continue
                 ;;
+            sort)
+                [[ "$sort_mode" == time ]] && sort_mode=name || sort_mode=time
+                continue
+                ;;
+            toggledirs)
+                [[ "$show_dirs" == 1 ]] && show_dirs=0 || show_dirs=1
+                continue
+                ;;
+            toggledots)
+                [[ "$show_dots" == 1 ]] && show_dots=0 || show_dots=1
+                continue
+                ;;
         esac
 
         [[ -z "$clean" ]] && continue
@@ -225,16 +248,28 @@ FEHELP
 }
 
 # ── directory listing ─────────────────────────────────────────────────────────
+# List one entry type, sorted by name (case-insensitive) or mtime (newest first),
+# optionally skipping dotfiles, each line wrapped in an ANSI color.
+_fe_ls_kind() {
+    local dir="$1" type="$2" suffix="$3" color="$4" sort_mode="$5" hide_dots="$6"
+    local hide=()
+    [[ "$hide_dots" == 1 ]] && hide=(-not -name '.*')
+    if [[ "$sort_mode" == time ]]; then
+        # sort by the leading %T@ epoch, then strip it back off
+        find "$dir" -maxdepth 1 -mindepth 1 -type "$type" "${hide[@]}" \
+            -printf "%T@ %f${suffix}\n" 2>/dev/null | sort -rn | cut -d' ' -f2-
+    else
+        find "$dir" -maxdepth 1 -mindepth 1 -type "$type" "${hide[@]}" \
+            -printf "%f${suffix}\n" 2>/dev/null | sort -f
+    fi | while IFS= read -r n; do printf "${color}%s\033[0m\n" "$n"; done
+}
+
 _fe_ls() {
-    local dir="$1"
-    find "$dir" -maxdepth 1 -mindepth 1 -type d -printf '%f/\n' 2>/dev/null \
-        | sort -f \
-        | while IFS= read -r d; do printf '\033[1;34m%s\033[0m\n' "$d"; done
-    find "$dir" -maxdepth 1 -mindepth 1 -type l -printf '%f\n' 2>/dev/null \
-        | sort -f \
-        | while IFS= read -r f; do printf '\033[36m%s\033[0m\n' "$f"; done
-    find "$dir" -maxdepth 1 -mindepth 1 -type f -printf '%f\n' 2>/dev/null \
-        | sort -f
+    local dir="$1" sort_mode="${2:-name}" show_dirs="${3:-1}" show_dots="${4:-0}"
+    local hide_dots=1; [[ "$show_dots" == 1 ]] && hide_dots=0
+    [[ "$show_dirs" == 1 ]] && _fe_ls_kind "$dir" d '/' '\033[1;34m' "$sort_mode" "$hide_dots"
+    _fe_ls_kind "$dir" l '' '\033[36m'   "$sort_mode" "$hide_dots"
+    _fe_ls_kind "$dir" f '' ''           "$sort_mode" "$hide_dots"
 }
 
 # ── file action ───────────────────────────────────────────────────────────────

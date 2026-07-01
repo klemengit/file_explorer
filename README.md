@@ -72,7 +72,7 @@ fe ~/code   # open in a specific directory
 ```
 
 `fe` is **modal**. It starts in *command mode*, where letters are commands (not
-search). Press `s` to drop into *search mode* and type to filter; `esc` returns
+search). Press `s` or `/` to drop into *search mode* and type to filter; `esc` returns
 to command mode.
 
 ## Keybindings
@@ -94,7 +94,10 @@ to command mode.
 | `d`       | delete (with confirmation)               |
 | `r`       | rename                                   |
 | `z`       | zip a file/dir, or unzip a `.zip`        |
-| `s`       | filter the current directory             |
+| `s` / `/` | filter the current directory             |
+| `t`       | toggle sort: name ↔ last modified        |
+| `.`       | show / hide dotfiles                     |
+| `D`       | show / hide directories                  |
 | `f`       | deep recursive find (from current dir)   |
 | `m`       | bookmark the current directory           |
 | `b`       | jump to a bookmark (`ctrl-d` deletes)    |
@@ -104,7 +107,10 @@ to command mode.
 `enter`/`l` open files in the **default application** (`xdg-open`). Use `e` to
 open in `nvim`.
 
-### Search mode (after pressing `s`)
+The `t`, `.` and `D` toggles are sticky for the session and combine freely (e.g.
+hide dotfiles *and* sort by modified time). Dotfiles are hidden by default.
+
+### Search mode (after pressing `s` or `/`)
 
 | Key                     | Action                                  |
 |-------------------------|-----------------------------------------|
