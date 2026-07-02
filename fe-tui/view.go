@@ -253,7 +253,11 @@ func (m model) pickerView() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(hintStyle.Render(truncate("  type to filter · ↑↓ move · enter select · esc cancel", m.width)))
+	hint := "  type to filter · ↑↓ move · enter select · esc cancel"
+	if m.pickerKind == pickBookmarks {
+		hint += " · ctrl-d delete"
+	}
+	b.WriteString(hintStyle.Render(truncate(hint, m.width)))
 	return b.String()
 }
 

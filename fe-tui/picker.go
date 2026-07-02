@@ -85,21 +85,21 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ti.SetValue("")
 		m.ti.Blur()
 		return m, nil
-	case "up", "ctrl-k", "ctrl-p":
+	case "up", "ctrl+k", "ctrl+p":
 		m.pickerCursor--
 		if m.pickerCursor < 0 {
 			m.pickerCursor = 0
 		}
 		m.pickerClampScroll()
 		return m, nil
-	case "down", "ctrl-j", "ctrl-n":
+	case "down", "ctrl+j", "ctrl+n":
 		m.pickerCursor++
 		if m.pickerCursor >= len(m.pickerRows) {
 			m.pickerCursor = len(m.pickerRows) - 1
 		}
 		m.pickerClampScroll()
 		return m, nil
-	case "ctrl-d":
+	case "ctrl+d":
 		if m.pickerKind == pickBookmarks {
 			if idx, ok := m.pickerSelectedIndex(); ok {
 				removeBookmark(m.pickerAll[idx])

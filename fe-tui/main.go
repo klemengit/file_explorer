@@ -246,7 +246,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if msg.String() == "ctrl-c" {
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 		switch m.mode {
@@ -289,9 +289,9 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.move(1)
 	case "k", "up":
 		m.move(-1)
-	case "ctrl-d":
+	case "ctrl+d":
 		m.move(m.listHeight() / 2)
-	case "ctrl-u":
+	case "ctrl+u":
 		m.move(-m.listHeight() / 2)
 	case "pgdown":
 		m.move(m.listHeight())
@@ -508,10 +508,10 @@ func (m model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		mm.ti.SetValue("")
 		mm.applyView()
 		return mm, cmd
-	case "up", "ctrl-k", "ctrl-p":
+	case "up", "ctrl+k", "ctrl+p":
 		m.move(-1)
 		return m, nil
-	case "down", "ctrl-j", "ctrl-n":
+	case "down", "ctrl+j", "ctrl+n":
 		m.move(1)
 		return m, nil
 	}
