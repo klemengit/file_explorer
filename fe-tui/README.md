@@ -34,6 +34,10 @@ fe          # browse the current directory
 fe ~/code   # browse a specific directory
 ```
 
+Each row shows the name plus a size and last-modified date (`YYYY-MM-DD HH:MM`);
+directories and symlinks show `-` for size. The columns hide automatically on
+very narrow terminals.
+
 ## Keybindings
 
 | Key                | Action                                   |

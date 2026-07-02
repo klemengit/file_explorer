@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -50,6 +51,8 @@ type row struct {
 	isDir    bool
 	isLink   bool
 	isParent bool
+	size     int64
+	modTime  time.Time
 }
 
 // editFinishedMsg is returned after an external editor (nvim) exits.
@@ -126,10 +129,12 @@ func (m *model) reload() {
 			label += "/"
 		}
 		m.allRows = append(m.allRows, row{
-			label:  label,
-			name:   e.name,
-			isDir:  e.isDir,
-			isLink: e.isLink,
+			label:   label,
+			name:    e.name,
+			isDir:   e.isDir,
+			isLink:  e.isLink,
+			size:    e.size,
+			modTime: e.modTime,
 		})
 	}
 	m.applyView()

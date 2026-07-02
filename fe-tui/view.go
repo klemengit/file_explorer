@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -109,17 +110,75 @@ func (m model) browseView() string {
 	return b.String()
 }
 
-func (m model) renderRow(r row, selected bool) string {
-	avail := m.width - 2
-	label := truncate(r.label, avail)
-	if selected {
-		st := lipgloss.NewStyle().
-			Foreground(fgColorFor(r)).
-			Background(lipgloss.Color(colSelBg)).
-			Bold(true)
-		return st.Render("▶ " + padRight(label, avail))
+const (
+	sizeColW = 7
+	dateColW = 16 // "2006-01-02 15:04"
+	metaColW = sizeColW + 2 + dateColW
+)
+
+// humanSize renders a byte count as a compact human-readable string.
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%dB", n)
 	}
-	return "  " + styleFor(r).Render(label)
+	div, exp := int64(unit), 0
+	for x := n / unit; x >= unit; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%c", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// rowMeta returns the size + modified-date suffix for a row (empty for the
+// parent row; size shown as "-" for directories and symlinks).
+func rowMeta(r row) string {
+	if r.isParent {
+		return ""
+	}
+	size := "-"
+	if !r.isDir && !r.isLink {
+		size = humanSize(r.size)
+	}
+	date := ""
+	if !r.modTime.IsZero() {
+		date = r.modTime.Format("2006-01-02 15:04")
+	}
+	return fmt.Sprintf("%*s  %s", sizeColW, size, date)
+}
+
+func (m model) renderRow(r row, selected bool) string {
+	// Show the size/date columns only when the terminal is wide enough.
+	showMeta := m.width >= metaColW+16
+	nameAvail := m.width - 2
+	if showMeta {
+		nameAvail = m.width - 2 - metaColW - 2
+	}
+	if nameAvail < 4 {
+		nameAvail = 4
+	}
+
+	label := truncate(r.label, nameAvail)
+	meta := ""
+	if showMeta {
+		meta = rowMeta(r)
+	}
+
+	if selected {
+		fg := lipgloss.NewStyle().Foreground(fgColorFor(r)).Background(lipgloss.Color(colSelBg)).Bold(true)
+		dim := lipgloss.NewStyle().Foreground(lipgloss.Color(colComment)).Background(lipgloss.Color(colSelBg))
+		line := fg.Render("▶ " + padRight(label, nameAvail))
+		if showMeta {
+			line += dim.Render("  " + padRight(meta, metaColW))
+		}
+		return line
+	}
+
+	line := "  " + styleFor(r).Render(padRight(label, nameAvail))
+	if showMeta {
+		line += metaStyle.Render("  " + meta)
+	}
+	return line
 }
 
 func (m model) footer() string {

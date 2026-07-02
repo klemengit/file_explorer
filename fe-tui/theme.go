@@ -28,6 +28,7 @@ var (
 	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colOrange))
 	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colRed))
 
+	metaStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colComment))
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colBlue))
 	titleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colBlue)).Bold(true)
 	helpKey     = lipgloss.NewStyle().Foreground(lipgloss.Color(colOrange)).Bold(true)

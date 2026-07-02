@@ -14,6 +14,7 @@ type entry struct {
 	name    string
 	isDir   bool
 	isLink  bool
+	size    int64
 	modTime time.Time
 }
 
@@ -40,10 +41,12 @@ func listDir(dir string, sm sortMode, showDirs, showDots bool) ([]entry, error) 
 		}
 		info, ierr := de.Info()
 		var mt time.Time
+		var sz int64
 		if ierr == nil {
 			mt = info.ModTime()
+			sz = info.Size()
 		}
-		e := entry{name: name, modTime: mt}
+		e := entry{name: name, modTime: mt, size: sz}
 		switch {
 		case de.Type()&fs.ModeSymlink != 0:
 			e.isLink = true
