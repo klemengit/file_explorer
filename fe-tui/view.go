@@ -2,11 +2,28 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+// abbrevHome shortens the home-directory prefix of an absolute path to "~"
+// (display only; relative paths are returned unchanged).
+func abbrevHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
+}
 
 func truncate(s string, w int) string {
 	if w <= 0 {
@@ -219,7 +236,7 @@ func (m model) pickerView() string {
 		item := m.pickerAll[m.pickerRows[i]]
 		selected := i == m.pickerCursor
 		avail := m.width - 2
-		text := truncate(item, avail)
+		text := truncate(abbrevHome(item), avail)
 		if selected {
 			st := lipgloss.NewStyle().
 				Foreground(lipgloss.Color(colFg)).

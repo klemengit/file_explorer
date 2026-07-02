@@ -1,11 +1,33 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestAbbrevHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home dir")
+	}
+	if got := abbrevHome(home); got != "~" {
+		t.Errorf("abbrevHome(home) = %q, want ~", got)
+	}
+	p := filepath.Join(home, "code", "proj")
+	if got, want := abbrevHome(p), "~/code/proj"; got != want {
+		t.Errorf("abbrevHome(%q) = %q, want %q", p, got, want)
+	}
+	if got := abbrevHome("/etc/hosts"); got != "/etc/hosts" {
+		t.Errorf("non-home path changed: %q", got)
+	}
+	if got := abbrevHome("relative/path"); got != "relative/path" {
+		t.Errorf("relative path changed: %q", got)
+	}
+}
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
