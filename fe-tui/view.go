@@ -90,7 +90,7 @@ func (m model) browseView() string {
 	var b strings.Builder
 
 	// header
-	header := " " + m.dir
+	header := " " + abbrevHome(m.dir)
 	var flags []string
 	if m.sortMode == sortTime {
 		flags = append(flags, "modified")
