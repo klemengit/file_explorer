@@ -17,7 +17,7 @@ leaves you in the directory you were browsing.
 
 - `nvim` — the `e` (edit) action
 - `fd` — faster recursive `f` (find); falls back to `find`
-- `xdg-open` — the default-app `open` action
+- `xdg-open` — the default-app `open` action and `g` (open dir in file manager)
 - `zip` / `unzip` — the `z` action
 
 ## Install
@@ -88,6 +88,7 @@ to command mode.
 | `enter`   | open in default app, or enter directory  |
 | `O`       | open with… (prompts for a command)       |
 | `e`       | edit in `nvim`                           |
+| `g`       | open current dir in system file manager  |
 | `y`       | yank (copy) to clipboard                 |
 | `x`       | cut to clipboard                         |
 | `p`       | paste clipboard here                     |

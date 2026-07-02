@@ -5,7 +5,7 @@
 #
 # Command mode (default — letters are commands, not search):
 #   h ← parent   j ↓   k ↑   l → enter/open
-#   enter open · O open-with · e nvim
+#   enter open · O open-with · e nvim · g open dir in file manager
 #   y yank · x cut · p paste · d delete · r rename · z zip/unzip
 #   s / filter (type to narrow) · f deep find · n 10 newest files · q quit
 #   t sort name/modified · . show/hide dotfiles · D show/hide dirs
@@ -39,7 +39,7 @@ _FE_FZF_OPTS=(
 )
 
 # Keys that are commands in command mode but must type literally while filtering.
-_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,m,b,?,q,t,.,D,/,n"
+_FE_KEYS="h,j,k,l,O,e,y,x,p,d,r,z,s,f,m,b,?,q,t,.,D,/,n,g"
 
 # ── main ──────────────────────────────────────────────────────────────────────
 fe() {
@@ -67,6 +67,7 @@ fe() {
   enter    open (default app)
   O        open with…
   e        edit in nvim
+  g        open current dir in file manager
   y        yank (copy)
   x        cut
   p        paste here
@@ -96,6 +97,7 @@ FEHELP
         "enter:execute-silent(printf open > '$state')+accept"
         "O:execute-silent(printf openwith > '$state')+accept"
         "e:execute-silent(printf nvim > '$state')+accept"
+        "g:execute-silent(printf gui > '$state')+accept"
         "y:execute-silent(printf yank > '$state')+accept"
         "x:execute-silent(printf cut > '$state')+accept"
         "p:execute-silent(printf paste > '$state')+accept"
@@ -158,6 +160,10 @@ FEHELP
             parent)
                 local parent; parent=$(dirname "$dir")
                 [[ "$parent" != "$dir" ]] && { dir="$parent"; cd "$dir"; }
+                continue
+                ;;
+            gui)
+                xdg-open "$dir" &>/dev/null &
                 continue
                 ;;
             find)
