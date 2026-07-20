@@ -28,6 +28,14 @@ var (
 	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colOrange))
 	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colRed))
 
+	// Two-pane borders: accent for the active pane, dim for the inactive one.
+	paneBorderActive = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color(colBlue))
+	paneBorderDim = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colComment))
+
 	metaStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colComment))
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colBlue))
 	titleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colBlue)).Bold(true)

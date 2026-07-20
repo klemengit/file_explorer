@@ -59,7 +59,10 @@ type row struct {
 // editFinishedMsg is returned after an external editor (nvim) exits.
 type editFinishedMsg struct{ err error }
 
-type model struct {
+// pane holds the browse state for one directory view: its listing, cursor,
+// scroll offset, sort/visibility flags, and its own render box (width/height).
+// The app always shows two panes side by side, commander-style.
+type pane struct {
 	dir     string
 	allRows []row
 	rows    []row
@@ -71,6 +74,14 @@ type model struct {
 	sortMode sortMode
 	showDirs bool
 	showDots bool
+}
+
+type model struct {
+	panes  [2]pane
+	active int // 0 = left, 1 = right
+
+	width  int
+	height int
 
 	mode mode
 	ti   textinput.Model
@@ -101,15 +112,30 @@ type model struct {
 func newModel(dir string) model {
 	ti := textinput.New()
 	ti.Prompt = "/ "
-	m := model{
-		dir:      dir,
-		showDirs: true,
-		showDots: false,
-		sortMode: sortName,
-		ti:       ti,
+	m := model{ti: ti}
+	for i := range m.panes {
+		m.panes[i] = pane{
+			dir:      dir,
+			showDirs: true,
+			showDots: false,
+			sortMode: sortName,
+		}
+		m.panes[i].reload("")
 	}
-	m.reload()
 	return m
+}
+
+// cur returns the active pane; other returns the inactive one.
+func (m *model) cur() *pane   { return &m.panes[m.active] }
+func (m *model) other() *pane { return &m.panes[1-m.active] }
+
+// filterQuery is the live filter text, but only while in filter mode; otherwise
+// the empty string (no filtering). The filter always targets the active pane.
+func (m *model) filterQuery() string {
+	if m.mode == modeFilter {
+		return m.ti.Value()
+	}
+	return ""
 }
 
 func (m *model) setStatus(lv int, format string, a ...any) {
@@ -117,21 +143,47 @@ func (m *model) setStatus(lv int, format string, a ...any) {
 	m.statusLv = lv
 }
 
-// reload re-reads the current directory and rebuilds the row list.
+// reload re-reads the active pane's directory (surfacing read errors as status).
 func (m *model) reload() {
-	entries, err := listDir(m.dir, m.sortMode, m.showDirs, m.showDots)
-	if err != nil {
+	if err := m.cur().reload(m.filterQuery()); err != nil {
 		m.setStatus(lvlErr, "Cannot read: %v", err)
+	}
+}
+
+// applyView recomputes the active pane's visible rows for the current filter.
+func (m *model) applyView() {
+	m.cur().applyView(m.filterQuery())
+}
+
+// enterDir descends the active pane into path.
+func (m *model) enterDir(path string) {
+	if err := m.cur().enterDir(path, m.filterQuery()); err != nil {
+		m.setStatus(lvlErr, "Cannot read: %v", err)
+	}
+}
+
+// goParent moves the active pane up to its parent directory.
+func (m *model) goParent() {
+	if err := m.cur().goParent(m.filterQuery()); err != nil {
+		m.setStatus(lvlErr, "Cannot read: %v", err)
+	}
+}
+
+// reload re-reads the pane's directory and rebuilds its row list, applying the
+// given filter query ("" = no filter). Returns any read error.
+func (p *pane) reload(filter string) error {
+	entries, err := listDir(p.dir, p.sortMode, p.showDirs, p.showDots)
+	if err != nil {
 		entries = nil
 	}
-	m.allRows = make([]row, 0, len(entries)+1)
-	m.allRows = append(m.allRows, row{label: "..", isParent: true})
+	p.allRows = make([]row, 0, len(entries)+1)
+	p.allRows = append(p.allRows, row{label: "..", isParent: true})
 	for _, e := range entries {
 		label := e.name
 		if e.isDir {
 			label += "/"
 		}
-		m.allRows = append(m.allRows, row{
+		p.allRows = append(p.allRows, row{
 			label:   label,
 			name:    e.name,
 			isDir:   e.isDir,
@@ -140,97 +192,134 @@ func (m *model) reload() {
 			modTime: e.modTime,
 		})
 	}
-	m.applyView()
+	p.applyView(filter)
+	return err
 }
 
-// applyView recomputes m.rows from m.allRows, applying the live filter query
-// when in filter mode, then clamps the cursor and scroll.
-func (m *model) applyView() {
-	if m.mode == modeFilter && m.ti.Value() != "" {
-		q := m.ti.Value()
-		m.rows = m.rows[:0]
+// applyView recomputes p.rows from p.allRows, keeping only entries that match
+// the filter query (empty query = show everything), then clamps cursor/scroll.
+func (p *pane) applyView(filter string) {
+	if filter != "" {
 		var kept []row
-		for _, r := range m.allRows {
+		for _, r := range p.allRows {
 			if r.isParent {
 				continue
 			}
-			if fuzzyMatch(q, r.name) {
+			if fuzzyMatch(filter, r.name) {
 				kept = append(kept, r)
 			}
 		}
-		m.rows = kept
+		p.rows = kept
 	} else {
-		m.rows = m.allRows
+		p.rows = p.allRows
 	}
-	m.clamp()
+	p.clamp()
 }
 
-func (m *model) clamp() {
-	if m.cursor >= len(m.rows) {
-		m.cursor = len(m.rows) - 1
+func (p *pane) clamp() {
+	if p.cursor >= len(p.rows) {
+		p.cursor = len(p.rows) - 1
 	}
-	if m.cursor < 0 {
-		m.cursor = 0
+	if p.cursor < 0 {
+		p.cursor = 0
 	}
-	m.clampScroll()
+	p.clampScroll()
 }
 
-func (m *model) clampScroll() {
-	h := m.listHeight()
-	if m.cursor < m.top {
-		m.top = m.cursor
+func (p *pane) clampScroll() {
+	h := p.listHeight()
+	if p.cursor < p.top {
+		p.top = p.cursor
 	}
-	if m.cursor >= m.top+h {
-		m.top = m.cursor - h + 1
+	if p.cursor >= p.top+h {
+		p.top = p.cursor - h + 1
 	}
-	if m.top < 0 {
-		m.top = 0
+	if p.top < 0 {
+		p.top = 0
 	}
 }
 
-func (m *model) listHeight() int {
-	h := m.height - 2 // header + footer
+func (p *pane) listHeight() int {
+	h := p.height - 2 // header + footer
 	if h < 1 {
 		h = 1
 	}
 	return h
 }
 
-func (m *model) cursorTo(name string) {
-	for i, r := range m.rows {
+func (p *pane) cursorTo(name string) {
+	for i, r := range p.rows {
 		if r.name == name {
-			m.cursor = i
-			m.clampScroll()
+			p.cursor = i
+			p.clampScroll()
 			return
 		}
 	}
 }
 
-func (m *model) enterDir(path string) {
-	m.dir = path
-	m.cursor = 0
-	m.top = 0
-	m.reload()
+func (p *pane) enterDir(path, filter string) error {
+	p.dir = path
+	p.cursor = 0
+	p.top = 0
+	return p.reload(filter)
 }
 
-func (m *model) goParent() {
-	parent := filepath.Dir(m.dir)
-	if parent == m.dir {
-		return
+func (p *pane) goParent(filter string) error {
+	parent := filepath.Dir(p.dir)
+	if parent == p.dir {
+		return nil
 	}
-	child := filepath.Base(m.dir)
-	m.enterDir(parent)
-	m.cursorTo(child)
+	child := filepath.Base(p.dir)
+	err := p.enterDir(parent, filter)
+	p.cursorTo(child)
+	return err
 }
 
-func (m *model) current() (row, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.rows) {
+func (p *pane) current() (row, bool) {
+	if p.cursor < 0 || p.cursor >= len(p.rows) {
 		return row{}, false
 	}
-	return m.rows[m.cursor], true
+	return p.rows[p.cursor], true
+}
+
+func (p *pane) move(delta int) {
+	p.cursor += delta
+	p.clamp()
+}
+
+// selectedTarget returns the absolute path of the highlighted entry (never the
+// ".." parent row).
+func (p pane) selectedTarget() (string, bool) {
+	r, ok := p.current()
+	if !ok || r.isParent {
+		return "", false
+	}
+	return filepath.Join(p.dir, r.name), true
 }
 
 func (m model) Init() tea.Cmd { return nil }
+
+// layout recomputes each pane's render box from the terminal size and the
+// the terminal size, then re-clamps both panes' scroll offsets.
+func (m *model) layout() {
+	leftOuter := m.width / 2
+	rightOuter := m.width - leftOuter
+	// Each pane is drawn inside a 1-cell border, so its content width is the
+	// box width minus the two border columns.
+	m.panes[0].width = leftOuter - 2
+	m.panes[1].width = rightOuter - 2
+	if m.panes[0].width < 1 {
+		m.panes[0].width = 1
+	}
+	if m.panes[1].width < 1 {
+		m.panes[1].width = 1
+	}
+	// Two border rows plus the shared footer line are taken off the height.
+	m.panes[0].height = m.height - 2
+	m.panes[1].height = m.height - 2
+	m.panes[0].clampScroll()
+	m.panes[1].clampScroll()
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -238,7 +327,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ti.Width = msg.Width - 4
-		m.clampScroll()
+		m.layout()
 		return m, nil
 
 	case editFinishedMsg:
@@ -285,73 +374,82 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.status = "" // any command clears a stale status line
 
+	p := m.cur()
+
 	switch key {
 	case "q":
 		return m, tea.Quit
+	case "tab":
+		// Switch the active pane between left and right.
+		m.active = 1 - m.active
+	case "f5":
+		m.transfer(false)
+	case "f6":
+		m.transfer(true)
 	case "j", "down":
-		m.move(1)
+		p.move(1)
 	case "k", "up":
-		m.move(-1)
+		p.move(-1)
 	case "ctrl+d":
-		m.move(m.listHeight() / 2)
+		p.move(p.listHeight() / 2)
 	case "ctrl+u":
-		m.move(-m.listHeight() / 2)
+		p.move(-p.listHeight() / 2)
 	case "pgdown":
-		m.move(m.listHeight())
+		p.move(p.listHeight())
 	case "pgup":
-		m.move(-m.listHeight())
+		p.move(-p.listHeight())
 	case "g":
 		if m.pendingG {
-			m.cursor, m.top = 0, 0
+			p.cursor, p.top = 0, 0
 			m.pendingG = false
 		} else {
 			m.pendingG = true
 		}
 	case "G":
-		m.cursor = len(m.rows) - 1
-		m.clampScroll()
+		p.cursor = len(p.rows) - 1
+		p.clampScroll()
 	case "h", "left":
 		m.goParent()
 	case "l", "right", "enter":
 		return m.openSelected()
 	case "E":
-		if err := openDetached("xdg-open", m.dir); err != nil {
+		if err := openDetached("xdg-open", p.dir); err != nil {
 			m.setStatus(lvlErr, "xdg-open: %v", err)
 		}
 	case "O":
-		if target, ok := m.selectedTarget(); ok {
+		if target, ok := p.selectedTarget(); ok {
 			return m.openOpenWith(target)
 		}
 	case "e":
-		if target, ok := m.selectedTarget(); ok {
+		if target, ok := p.selectedTarget(); ok {
 			c := exec.Command("nvim", target)
 			return m, tea.ExecProcess(c, func(err error) tea.Msg { return editFinishedMsg{err} })
 		}
 	case "y":
-		if target, ok := m.selectedTarget(); ok {
+		if target, ok := p.selectedTarget(); ok {
 			m.clip = &clipEntry{path: target, cut: false}
 			m.setStatus(lvlInfo, "Yanked: %s", filepath.Base(target))
 		}
 	case "x":
-		if target, ok := m.selectedTarget(); ok {
+		if target, ok := p.selectedTarget(); ok {
 			m.clip = &clipEntry{path: target, cut: true}
 			m.setStatus(lvlWarn, "Cut: %s", filepath.Base(target))
 		}
 	case "p":
 		m.paste()
 	case "c":
-		if target, ok := m.selectedTarget(); ok {
+		if target, ok := p.selectedTarget(); ok {
 			return m.openCopyMenu(target)
 		}
 	case "d":
-		if target, ok := m.selectedTarget(); ok {
+		if target, ok := p.selectedTarget(); ok {
 			m.confirmKind = confirmDelete
 			m.confirmPath = target
 			m.confirmMsg = fmt.Sprintf("Delete '%s'?", filepath.Base(target))
 			m.mode = modeConfirm
 		}
 	case "r":
-		if target, ok := m.selectedTarget(); ok {
+		if target, ok := p.selectedTarget(); ok {
 			m.startPrompt(modeRename, "new name…", filepath.Base(target))
 		}
 	case "z":
@@ -366,22 +464,22 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openPicker(pickFind)
 	case "n":
 		// Cycle: newest first → oldest first → original (name) order.
-		switch m.sortMode {
+		switch p.sortMode {
 		case sortName:
-			m.sortMode = sortTimeDesc
+			p.sortMode = sortTimeDesc
 		case sortTimeDesc:
-			m.sortMode = sortTimeAsc
+			p.sortMode = sortTimeAsc
 		default:
-			m.sortMode = sortName
+			p.sortMode = sortName
 		}
-		m.cursor, m.top = 0, 0
+		p.cursor, p.top = 0, 0
 		m.reload()
 	case "m":
-		added, err := addBookmark(m.dir)
+		added, err := addBookmark(p.dir)
 		if err != nil {
 			m.setStatus(lvlErr, "bookmark: %v", err)
 		} else if added {
-			m.setStatus(lvlInfo, "Bookmarked: %s", m.dir)
+			m.setStatus(lvlInfo, "Bookmarked: %s", p.dir)
 		} else {
 			m.setStatus(lvlInfo, "Already bookmarked")
 		}
@@ -389,17 +487,17 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openPicker(pickBookmarks)
 	case "t":
 		// Toggle between name order and newest-first.
-		if m.sortMode == sortName {
-			m.sortMode = sortTimeDesc
+		if p.sortMode == sortName {
+			p.sortMode = sortTimeDesc
 		} else {
-			m.sortMode = sortName
+			p.sortMode = sortName
 		}
 		m.reload()
 	case ".":
-		m.showDots = !m.showDots
+		p.showDots = !p.showDots
 		m.reload()
 	case "D":
-		m.showDirs = !m.showDirs
+		p.showDirs = !p.showDirs
 		m.reload()
 	case "?":
 		m.showHelp = true
@@ -407,23 +505,45 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) move(delta int) {
-	m.cursor += delta
-	m.clamp()
-}
-
-// selectedTarget returns the absolute path of the highlighted entry (never the
-// ".." row).
-func (m model) selectedTarget() (string, bool) {
-	r, ok := m.current()
-	if !ok || r.isParent {
-		return "", false
+// transfer copies (move=false) or moves (move=true) the active pane's selected
+// entry into the other pane's directory.
+func (m *model) transfer(move bool) {
+	src, ok := m.cur().selectedTarget()
+	if !ok {
+		return
 	}
-	return filepath.Join(m.dir, r.name), true
+	dstDir := m.other().dir
+	if dstDir == m.cur().dir {
+		m.setStatus(lvlWarn, "Both panes show the same directory")
+		return
+	}
+	name := filepath.Base(src)
+	dst := filepath.Join(dstDir, name)
+	if move {
+		if err := movePath(src, dst); err != nil {
+			m.setStatus(lvlErr, "move: %v", err)
+			return
+		}
+	} else {
+		if err := copyPath(src, dst); err != nil {
+			m.setStatus(lvlErr, "copy: %v", err)
+			return
+		}
+	}
+	// Refresh both panes; put the other pane's cursor on the new entry.
+	m.cur().reload(m.filterQuery())
+	m.other().reload("")
+	m.other().cursorTo(name)
+	verb := "Copied"
+	if move {
+		verb = "Moved"
+	}
+	m.setStatus(lvlInfo, "%s %s → %s", verb, name, abbrevHome(dstDir))
 }
 
 func (m model) openSelected() (tea.Model, tea.Cmd) {
-	r, ok := m.current()
+	p := m.cur()
+	r, ok := p.current()
 	if !ok {
 		return m, nil
 	}
@@ -431,7 +551,7 @@ func (m model) openSelected() (tea.Model, tea.Cmd) {
 		m.goParent()
 		return m, nil
 	}
-	target := filepath.Join(m.dir, r.name)
+	target := filepath.Join(p.dir, r.name)
 	info, err := os.Stat(target)
 	if err == nil && info.IsDir() {
 		m.enterDir(target)
@@ -461,7 +581,7 @@ func (m *model) paste() {
 		m.setStatus(lvlErr, "Nothing to paste")
 		return
 	}
-	target := filepath.Join(m.dir, filepath.Base(m.clip.path))
+	target := filepath.Join(m.cur().dir, filepath.Base(m.clip.path))
 	if _, err := os.Lstat(target); err == nil {
 		m.confirmKind = confirmPaste
 		m.confirmPath = target
@@ -476,7 +596,7 @@ func (m *model) doPaste() {
 	if m.clip == nil {
 		return
 	}
-	target := filepath.Join(m.dir, filepath.Base(m.clip.path))
+	target := filepath.Join(m.cur().dir, filepath.Base(m.clip.path))
 	name := filepath.Base(m.clip.path)
 	if m.clip.cut {
 		if err := movePath(m.clip.path, target); err != nil {
@@ -493,11 +613,11 @@ func (m *model) doPaste() {
 		m.setStatus(lvlInfo, "Copied: %s", name)
 	}
 	m.reload()
-	m.cursorTo(name)
+	m.cur().cursorTo(name)
 }
 
 func (m *model) zip() {
-	target, ok := m.selectedTarget()
+	target, ok := m.cur().selectedTarget()
 	if !ok {
 		return
 	}
@@ -527,15 +647,15 @@ func (m model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		mm.applyView()
 		return mm, cmd
 	case "up", "ctrl+k", "ctrl+p":
-		m.move(-1)
+		m.cur().move(-1)
 		return m, nil
 	case "down", "ctrl+j", "ctrl+n":
-		m.move(1)
+		m.cur().move(1)
 		return m, nil
 	}
 	var cmd tea.Cmd
 	m.ti, cmd = m.ti.Update(msg)
-	m.cursor, m.top = 0, 0
+	m.cur().cursor, m.cur().top = 0, 0
 	m.applyView()
 	return m, cmd
 }
@@ -564,7 +684,7 @@ func (m model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) applyRename(newName string) {
-	target, ok := m.selectedTarget()
+	target, ok := m.cur().selectedTarget()
 	if !ok {
 		return
 	}
@@ -572,18 +692,18 @@ func (m *model) applyRename(newName string) {
 	if newName == "" || newName == old {
 		return
 	}
-	dst := filepath.Join(m.dir, newName)
+	dst := filepath.Join(m.cur().dir, newName)
 	if err := os.Rename(target, dst); err != nil {
 		m.setStatus(lvlErr, "rename: %v", err)
 		return
 	}
 	m.reload()
-	m.cursorTo(newName)
+	m.cur().cursorTo(newName)
 	m.setStatus(lvlInfo, "Renamed to %s", newName)
 }
 
 func (m *model) applyOpenWith(cmdline string) {
-	target, ok := m.selectedTarget()
+	target, ok := m.cur().selectedTarget()
 	if !ok || cmdline == "" {
 		return
 	}

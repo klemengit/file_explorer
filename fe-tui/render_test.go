@@ -43,11 +43,11 @@ func TestHumanSize(t *testing.T) {
 }
 
 func TestRenderRowColumns(t *testing.T) {
-	m := model{width: 90}
+	p := pane{width: 90}
 	mt := time.Date(2026, 1, 2, 15, 4, 0, 0, time.UTC)
 
 	file := row{label: "alpha.txt", name: "alpha.txt", size: 1500, modTime: mt}
-	out := strip(m.renderRow(file, false))
+	out := strip(p.renderRow(file, false))
 	if !strings.Contains(out, "1.5K") {
 		t.Errorf("file row missing size: %q", out)
 	}
@@ -56,19 +56,19 @@ func TestRenderRowColumns(t *testing.T) {
 	}
 
 	dir := row{label: "sub/", name: "sub", isDir: true, modTime: mt}
-	out = strip(m.renderRow(dir, false))
+	out = strip(p.renderRow(dir, false))
 	if !strings.Contains(out, "-") {
 		t.Errorf("dir row should show '-' for size: %q", out)
 	}
 
 	parent := row{label: "..", isParent: true}
-	out = strip(m.renderRow(parent, true))
+	out = strip(p.renderRow(parent, true))
 	if strings.Contains(out, "2026") {
 		t.Errorf("parent row should have no date: %q", out)
 	}
 
 	// selected file row still carries both columns
-	out = strip(m.renderRow(file, true))
+	out = strip(p.renderRow(file, true))
 	if !strings.Contains(out, "1.5K") || !strings.Contains(out, "2026-01-02 15:04") {
 		t.Errorf("selected file row missing columns: %q", out)
 	}

@@ -83,51 +83,64 @@ func (m model) View() string {
 	if m.mode == modePicker {
 		return m.pickerView()
 	}
-	return m.browseView()
+	return m.dualView()
 }
 
-func (m model) browseView() string {
-	var b strings.Builder
+// dualView renders both panes in side-by-side bordered boxes (the active pane
+// highlighted) with the shared footer full-width beneath.
+func (m model) dualView() string {
+	left := m.paneBox(&m.panes[0], m.active == 0)
+	right := m.paneBox(&m.panes[1], m.active == 1)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	return body + "\n" + m.footer()
+}
 
+// paneBox wraps a pane's content in a border — accent when active, dim when not.
+func (m model) paneBox(p *pane, active bool) string {
+	style := paneBorderDim
+	if active {
+		style = paneBorderActive
+	}
+	return style.Width(p.width).Height(p.height - 1).Render(m.paneContent(p))
+}
+
+// paneContent renders a pane's header and visible rows as exactly p.height-1
+// lines (header + list), without a footer.
+func (m model) paneContent(p *pane) string {
 	// header
-	header := " " + abbrevHome(m.dir)
+	header := " " + abbrevHome(p.dir)
 	var flags []string
-	switch m.sortMode {
+	switch p.sortMode {
 	case sortTimeDesc:
 		flags = append(flags, "newest")
 	case sortTimeAsc:
 		flags = append(flags, "oldest")
 	}
-	if m.showDots {
+	if p.showDots {
 		flags = append(flags, "dotfiles")
 	}
-	if !m.showDirs {
+	if !p.showDirs {
 		flags = append(flags, "no-dirs")
 	}
 	if len(flags) > 0 {
 		header += "  [" + strings.Join(flags, " ") + "]"
 	}
-	b.WriteString(headerStyle.Render(truncate(header, m.width)))
-	b.WriteString("\n")
 
-	// list
-	h := m.listHeight()
-	end := m.top + h
-	if end > len(m.rows) {
-		end = len(m.rows)
-	}
-	lines := 0
-	for i := m.top; i < end; i++ {
-		b.WriteString(m.renderRow(m.rows[i], i == m.cursor))
-		b.WriteString("\n")
-		lines++
-	}
-	for ; lines < h; lines++ {
-		b.WriteString("\n")
-	}
+	h := p.listHeight()
+	lines := make([]string, 0, h+1)
+	lines = append(lines, headerStyle.Render(truncate(header, p.width)))
 
-	b.WriteString(m.footer())
-	return b.String()
+	end := p.top + h
+	if end > len(p.rows) {
+		end = len(p.rows)
+	}
+	for i := p.top; i < end; i++ {
+		lines = append(lines, p.renderRow(p.rows[i], i == p.cursor))
+	}
+	for len(lines) < h+1 {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
 }
 
 const (
@@ -167,12 +180,12 @@ func rowMeta(r row) string {
 	return fmt.Sprintf("%*s  %s", sizeColW, size, date)
 }
 
-func (m model) renderRow(r row, selected bool) string {
-	// Show the size/date columns only when the terminal is wide enough.
-	showMeta := m.width >= metaColW+16
-	nameAvail := m.width - 2
+func (p pane) renderRow(r row, selected bool) string {
+	// Show the size/date columns only when the pane is wide enough.
+	showMeta := p.width >= metaColW+16
+	nameAvail := p.width - 2
 	if showMeta {
-		nameAvail = m.width - 2 - metaColW - 2
+		nameAvail = p.width - 2 - metaColW - 2
 	}
 	if nameAvail < 4 {
 		nameAvail = 4
@@ -218,7 +231,7 @@ func (m model) footer() string {
 			return statusStyle.Render(m.status)
 		}
 	}
-	hint := "hjkl move · gg/G top/bottom · / filter · f find · n newest · y/x/p yank/cut/paste · r rename · d delete · ? help · q quit"
+	hint := "hjkl move · tab switch pane · F5/F6 copy/move · / filter · f find · n newest · y/x/p yank/cut/paste · r rename · d delete · ? help · q quit"
 	return hintStyle.Render(truncate(hint, m.width))
 }
 
@@ -267,6 +280,8 @@ func (m model) pickerView() string {
 func (m model) helpView() string {
 	type kb struct{ key, desc string }
 	binds := []kb{
+		{"tab", "switch active pane"},
+		{"F5 / F6", "copy / move to other pane"},
 		{"h / ←", "parent directory"},
 		{"j / ↓", "down"},
 		{"k / ↑", "up"},

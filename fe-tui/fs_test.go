@@ -93,8 +93,8 @@ func TestListDirNameSortGroups(t *testing.T) {
 func TestNKeyCycles(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	writeAt(t, dir, "a.txt", base)                 // oldest
-	writeAt(t, dir, "b.txt", base.Add(time.Hour))  // newest
+	writeAt(t, dir, "a.txt", base)                // oldest
+	writeAt(t, dir, "b.txt", base.Add(time.Hour)) // newest
 
 	pressN := func(m model) model {
 		tm, _ := m.updateBrowse(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
@@ -107,20 +107,21 @@ func TestNKeyCycles(t *testing.T) {
 
 	m := newModel(dir)
 	m.width, m.height = 80, 24
+	m.layout()
 
 	// 1st press: newest first — rows[0] is "..", rows[1] the newest file.
 	m = pressN(m)
-	if m.sortMode != sortTimeDesc || m.rows[1].name != "b.txt" {
-		t.Fatalf("1st n: want newest-first with b.txt on top, got mode=%v rows=%+v", m.sortMode, m.rows)
+	if p := m.cur(); p.sortMode != sortTimeDesc || p.rows[1].name != "b.txt" {
+		t.Fatalf("1st n: want newest-first with b.txt on top, got mode=%v rows=%+v", p.sortMode, p.rows)
 	}
 	// 2nd press: oldest first.
 	m = pressN(m)
-	if m.sortMode != sortTimeAsc || m.rows[1].name != "a.txt" {
-		t.Fatalf("2nd n: want oldest-first with a.txt on top, got mode=%v rows=%+v", m.sortMode, m.rows)
+	if p := m.cur(); p.sortMode != sortTimeAsc || p.rows[1].name != "a.txt" {
+		t.Fatalf("2nd n: want oldest-first with a.txt on top, got mode=%v rows=%+v", p.sortMode, p.rows)
 	}
 	// 3rd press: back to original name order.
 	m = pressN(m)
-	if m.sortMode != sortName {
-		t.Fatalf("3rd n: want original name sort, got mode=%v", m.sortMode)
+	if p := m.cur(); p.sortMode != sortName {
+		t.Fatalf("3rd n: want original name sort, got mode=%v", p.sortMode)
 	}
 }
