@@ -154,6 +154,14 @@ func (m model) pickerSelect() (tea.Model, tea.Cmd) {
 		} else {
 			m.setStatus(lvlErr, "No longer exists: %s", item)
 		}
+	case pickOpenWith:
+		// The trailing item past the app list is "Custom command…".
+		if idx >= len(m.openWith) {
+			m.startPrompt(modeOpenWith, "command…", "")
+			return m, m.ti.Focus()
+		}
+		cmd := m.launchApp(m.openWith[idx], m.openWithTarget)
+		return m, cmd
 	}
 	return m, nil
 }

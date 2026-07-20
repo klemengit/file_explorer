@@ -271,7 +271,7 @@ func (m model) helpView() string {
 		{"gg", "go to top"},
 		{"G", "go to bottom"},
 		{"ctrl-d / ctrl-u", "half page down / up"},
-		{"O", "open with… (prompt)"},
+		{"O", "open with… (app menu)"},
 		{"e", "edit in nvim"},
 		{"E", "open current dir in file manager"},
 		{"y", "yank (copy)"},

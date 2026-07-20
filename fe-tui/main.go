@@ -36,6 +36,7 @@ const (
 	pickFind pickerKind = iota
 	pickRecent
 	pickBookmarks
+	pickOpenWith
 )
 
 const (
@@ -90,6 +91,9 @@ type model struct {
 	pickerRows   []int
 	pickerCursor int
 	pickerTop    int
+
+	openWith       []app
+	openWithTarget string
 
 	recentN int
 }
@@ -316,8 +320,8 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setStatus(lvlErr, "xdg-open: %v", err)
 		}
 	case "O":
-		if _, ok := m.selectedTarget(); ok {
-			m.startPrompt(modeOpenWith, "command…", "")
+		if target, ok := m.selectedTarget(); ok {
+			return m.openOpenWith(target)
 		}
 	case "e":
 		if target, ok := m.selectedTarget(); ok {
