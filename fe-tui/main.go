@@ -37,6 +37,7 @@ const (
 	pickRecent
 	pickBookmarks
 	pickOpenWith
+	pickCopy
 )
 
 const (
@@ -94,6 +95,8 @@ type model struct {
 
 	openWith       []app
 	openWithTarget string
+
+	copyItems []copyChoice
 
 	recentN int
 }
@@ -340,6 +343,10 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "p":
 		m.paste()
+	case "c":
+		if target, ok := m.selectedTarget(); ok {
+			return m.openCopyMenu(target)
+		}
 	case "d":
 		if target, ok := m.selectedTarget(); ok {
 			m.confirmKind = confirmDelete

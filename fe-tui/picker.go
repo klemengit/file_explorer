@@ -162,6 +162,9 @@ func (m model) pickerSelect() (tea.Model, tea.Cmd) {
 		}
 		cmd := m.launchApp(m.openWith[idx], m.openWithTarget)
 		return m, cmd
+	case pickCopy:
+		m.applyCopy(idx)
+		return m, nil
 	}
 	return m, nil
 }

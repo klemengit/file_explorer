@@ -277,6 +277,7 @@ func (m model) helpView() string {
 		{"y", "yank (copy)"},
 		{"x", "cut"},
 		{"p", "paste here"},
+		{"c", "copy path / name to clipboard"},
 		{"d", "delete (confirm)"},
 		{"r", "rename"},
 		{"z", "zip / unzip"},

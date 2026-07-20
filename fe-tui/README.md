@@ -13,19 +13,29 @@ motions like `gg` / `G` work. It ports every feature of the shell version.
 > directory on quit (the shell-function `cd`-on-exit trick from `fe.sh` is gone
 > by design). It's for browsing and file operations.
 
-## Build
+## Build & install
 
 Needs Go ≥ 1.24.2.
 
 ```bash
 cd fe-tui
-go build -o fe .
-# then put it on your PATH, e.g.
-install -m755 fe ~/.local/bin/fe
+go build -o fe .                 # produces the self-contained ./fe binary
+install -m755 fe ~/.local/bin/fe # put it on your PATH
 ```
 
+The result is a single static-ish binary (only links libc), so once installed it
+runs on its own — the Go toolchain is only needed to build it.
+
+This binary is meant to **replace** the shell version: install it as `fe` and
+drop the `source .../fe.sh` line from your shell rc. (Because it's a normal
+binary it can't `cd` your shell on quit — see the note at the top.)
+
+After editing the source (for example adding apps to `curatedApps` in
+`openwith.go`), just re-run the two commands above to rebuild and reinstall.
+
 Optional external tools (same as the shell version): `nvim` (edit), `xdg-open`
-(open files / open dir in file manager), `zip` / `unzip`.
+(open files / open dir in file manager), `zip` / `unzip`. The `O` open-with menu
+picks up any of a broad set of apps found on your `PATH`.
 
 ## Usage
 
@@ -55,6 +65,7 @@ very narrow terminals.
 | `y`                | yank (copy)                              |
 | `x`                | cut                                      |
 | `p`                | paste here                               |
+| `c`                | copy path / name to clipboard (menu)     |
 | `d`                | delete (with confirmation)               |
 | `r`                | rename                                   |
 | `z`                | zip / unzip                              |
@@ -87,6 +98,17 @@ to fuzzy-filter, `enter` to launch.
   the bottom and drops into a free-form command prompt (the old `O` behaviour).
 
 To add or reorder entries, edit the `curatedApps` list in `openwith.go`.
+
+### Copy to clipboard (`c`)
+
+`c` opens a small menu of things to copy to the **system clipboard** for the
+highlighted entry: its **absolute path**, its **relative path** (relative to the
+directory `fe` was launched from), its **file name**, or its **directory**. Each
+row previews the exact text; `enter` copies it.
+
+This uses the system clipboard (via `wl-copy` / `xclip` / `xsel`), unlike the
+in-memory `y`/`x`/`p` yank-and-paste — so you can paste the path into other
+programs.
 
 Bookmarks are shared with the shell version — same file at
 `${XDG_DATA_HOME:-~/.local/share}/fe/bookmarks`.
