@@ -34,7 +34,6 @@ type pickerKind int
 
 const (
 	pickFind pickerKind = iota
-	pickRecent
 	pickBookmarks
 	pickOpenWith
 	pickCopy
@@ -97,8 +96,6 @@ type model struct {
 	openWithTarget string
 
 	copyItems []copyChoice
-
-	recentN int
 }
 
 func newModel(dir string) model {
@@ -110,7 +107,6 @@ func newModel(dir string) model {
 		showDots: false,
 		sortMode: sortName,
 		ti:       ti,
-		recentN:  10,
 	}
 	m.reload()
 	return m
@@ -369,7 +365,17 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "f":
 		return m.openPicker(pickFind)
 	case "n":
-		return m.openPicker(pickRecent)
+		// Cycle: newest first → oldest first → original (name) order.
+		switch m.sortMode {
+		case sortName:
+			m.sortMode = sortTimeDesc
+		case sortTimeDesc:
+			m.sortMode = sortTimeAsc
+		default:
+			m.sortMode = sortName
+		}
+		m.cursor, m.top = 0, 0
+		m.reload()
 	case "m":
 		added, err := addBookmark(m.dir)
 		if err != nil {
@@ -382,10 +388,11 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "b":
 		return m.openPicker(pickBookmarks)
 	case "t":
-		if m.sortMode == sortTime {
-			m.sortMode = sortName
+		// Toggle between name order and newest-first.
+		if m.sortMode == sortName {
+			m.sortMode = sortTimeDesc
 		} else {
-			m.sortMode = sortTime
+			m.sortMode = sortName
 		}
 		m.reload()
 	case ".":

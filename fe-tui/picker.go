@@ -16,9 +16,6 @@ func (m model) openPicker(kind pickerKind) (tea.Model, tea.Cmd) {
 	case pickFind:
 		items = deepFind(m.dir)
 		title = "find"
-	case pickRecent:
-		items = recentFiles(m.dir, m.recentN)
-		title = "newest files"
 	case pickBookmarks:
 		items = loadBookmarks()
 		title = "bookmarks  ·  enter: go · ctrl-d: delete"
@@ -144,10 +141,6 @@ func (m model) pickerSelect() (tea.Model, tea.Cmd) {
 			m.enterDir(filepath.Dir(target))
 			m.cursorTo(filepath.Base(target))
 		}
-	case pickRecent:
-		target := filepath.Join(m.dir, item)
-		m.enterDir(filepath.Dir(target))
-		m.cursorTo(filepath.Base(target))
 	case pickBookmarks:
 		if info, err := os.Stat(item); err == nil && info.IsDir() {
 			m.enterDir(item)

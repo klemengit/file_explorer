@@ -70,11 +70,11 @@ very narrow terminals.
 | `r`                | rename                                   |
 | `z`                | zip / unzip                              |
 | `s` / `/`          | filter (type; `esc` exits)               |
-| `t`                | sort by name / modified                  |
+| `t`                | sort by name / newest                    |
 | `.`                | show / hide dotfiles                     |
 | `D`                | show / hide directories                  |
 | `f`                | deep find (recursive)                    |
-| `n`                | 10 newest files (recursive)              |
+| `n`                | cycle sort: newest → oldest → name        |
 | `m`                | bookmark current directory               |
 | `b`                | jump to a bookmark (`ctrl-d` deletes)    |
 | `?`                | toggle help                              |
@@ -118,7 +118,10 @@ Bookmarks are shared with the shell version — same file at
 - The clipboard (yank/cut) is **in-memory** (single session) rather than the
   cross-invocation temp file the shell version used; the pending item shows in
   the status line instead of as a `[paste …]` row.
-- Deep find and "newest files" are implemented natively in Go (no `fd`/`find`
-  dependency).
+- Deep find (`f`) is implemented natively in Go (no `fd`/`find` dependency).
+- `n` cycles the current directory's ordering: **newest first → oldest first →
+  original (name) order** (a flat, `ls -t`-style sort over the current
+  directory), rather than the shell version's recursive newest-files list. The
+  header shows `[newest]` or `[oldest]` while a time sort is active.
 - `O` (open with) presents a searchable app menu instead of the shell version's
   single command prompt; the typed-command prompt remains as the last entry.

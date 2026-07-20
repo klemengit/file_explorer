@@ -92,8 +92,11 @@ func (m model) browseView() string {
 	// header
 	header := " " + abbrevHome(m.dir)
 	var flags []string
-	if m.sortMode == sortTime {
-		flags = append(flags, "modified")
+	switch m.sortMode {
+	case sortTimeDesc:
+		flags = append(flags, "newest")
+	case sortTimeAsc:
+		flags = append(flags, "oldest")
 	}
 	if m.showDots {
 		flags = append(flags, "dotfiles")
@@ -282,11 +285,11 @@ func (m model) helpView() string {
 		{"r", "rename"},
 		{"z", "zip / unzip"},
 		{"s / /", "filter (type; esc exits)"},
-		{"t", "sort name / modified"},
+		{"t", "sort name / newest"},
 		{".", "show / hide dotfiles"},
 		{"D", "show / hide directories"},
 		{"f", "deep find"},
-		{"n", "newest files (recursive)"},
+		{"n", "cycle sort: newest → oldest → name"},
 		{"m", "bookmark dir"},
 		{"b", "jump to bookmark"},
 		{"?", "toggle this help"},

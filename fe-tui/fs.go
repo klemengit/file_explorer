@@ -21,22 +21,30 @@ type entry struct {
 type sortMode int
 
 const (
-	sortName sortMode = iota
-	sortTime
+	sortName     sortMode = iota // grouped dirs → links → files, by name
+	sortTimeDesc                 // flat, newest first
+	sortTimeAsc                  // flat, oldest first
 )
 
-// listDir reads dir and returns its entries, grouped dirs → symlinks → files
-// (matching the original fe.sh), each group sorted by name or mtime.
+// listDir reads dir and returns its entries. Sorting by name groups them
+// dirs → symlinks → files (matching the original fe.sh), each group by name.
+// Sorting by mtime is a flat, newest-first order across all entries (like
+// `ls -t`), so the most recently modified item comes first regardless of type.
 func listDir(dir string, sm sortMode, showDirs, showDots bool) ([]entry, error) {
 	des, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	var dirs, links, files []entry
+	var all []entry
 	for _, de := range des {
 		name := de.Name()
 		if !showDots && strings.HasPrefix(name, ".") {
+			continue
+		}
+		isLink := de.Type()&fs.ModeSymlink != 0
+		isDir := de.IsDir()
+		if isDir && !showDirs {
 			continue
 		}
 		info, ierr := de.Info()
@@ -46,38 +54,45 @@ func listDir(dir string, sm sortMode, showDirs, showDots bool) ([]entry, error) 
 			mt = info.ModTime()
 			sz = info.Size()
 		}
-		e := entry{name: name, modTime: mt, size: sz}
+		all = append(all, entry{name: name, isDir: isDir, isLink: isLink, size: sz, modTime: mt})
+	}
+
+	byName := func(i, j int) bool {
+		return strings.ToLower(all[i].name) < strings.ToLower(all[j].name)
+	}
+
+	if sm == sortTimeDesc || sm == sortTimeAsc {
+		// Flat mtime order; stable, with name as a tie-breaker.
+		sort.SliceStable(all, func(i, j int) bool {
+			if !all[i].modTime.Equal(all[j].modTime) {
+				if sm == sortTimeDesc {
+					return all[i].modTime.After(all[j].modTime)
+				}
+				return all[i].modTime.Before(all[j].modTime)
+			}
+			return byName(i, j)
+		})
+		return all, nil
+	}
+
+	// Group dirs → symlinks → files, each sorted by name.
+	rank := func(e entry) int {
 		switch {
-		case de.Type()&fs.ModeSymlink != 0:
-			e.isLink = true
-			links = append(links, e)
-		case de.IsDir():
-			e.isDir = true
-			dirs = append(dirs, e)
+		case e.isDir:
+			return 0
+		case e.isLink:
+			return 1
 		default:
-			files = append(files, e)
+			return 2
 		}
 	}
-
-	sortGroup := func(g []entry) {
-		sort.SliceStable(g, func(i, j int) bool {
-			if sm == sortTime {
-				return g[i].modTime.After(g[j].modTime)
-			}
-			return strings.ToLower(g[i].name) < strings.ToLower(g[j].name)
-		})
-	}
-	sortGroup(dirs)
-	sortGroup(links)
-	sortGroup(files)
-
-	out := make([]entry, 0, len(dirs)+len(links)+len(files))
-	if showDirs {
-		out = append(out, dirs...)
-	}
-	out = append(out, links...)
-	out = append(out, files...)
-	return out, nil
+	sort.SliceStable(all, func(i, j int) bool {
+		if r, s := rank(all[i]), rank(all[j]); r != s {
+			return r < s
+		}
+		return byName(i, j)
+	})
+	return all, nil
 }
 
 // hasDotComponent reports whether any path component (relative to root) starts
@@ -122,50 +137,5 @@ func deepFind(dir string) []string {
 		return nil
 	})
 	sort.Strings(out)
-	return out
-}
-
-// recentFiles returns the n most-recently-modified files under dir (recursive,
-// skipping dotfiles), as paths relative to dir. Mirrors the `n` action.
-func recentFiles(dir string, n int) []string {
-	type fm struct {
-		rel string
-		mt  time.Time
-	}
-	var all []fm
-	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if d != nil && d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasPrefix(d.Name(), ".") && path != dir {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		info, ierr := d.Info()
-		if ierr != nil {
-			return nil
-		}
-		rel, rerr := filepath.Rel(dir, path)
-		if rerr == nil {
-			all = append(all, fm{rel: rel, mt: info.ModTime()})
-		}
-		return nil
-	})
-	sort.Slice(all, func(i, j int) bool { return all[i].mt.After(all[j].mt) })
-	if len(all) > n {
-		all = all[:n]
-	}
-	out := make([]string, len(all))
-	for i, f := range all {
-		out[i] = f.rel
-	}
 	return out
 }
