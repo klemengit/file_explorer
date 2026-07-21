@@ -122,6 +122,12 @@ func (m model) paneContent(p *pane) string {
 	if !p.showDirs {
 		flags = append(flags, "no-dirs")
 	}
+	if p.visual {
+		flags = append(flags, "VISUAL")
+	}
+	if n := len(p.selectedPaths()); n > 0 {
+		flags = append(flags, fmt.Sprintf("%d selected", n))
+	}
 	if len(flags) > 0 {
 		header += "  [" + strings.Join(flags, " ") + "]"
 	}
@@ -135,7 +141,7 @@ func (m model) paneContent(p *pane) string {
 		end = len(p.rows)
 	}
 	for i := p.top; i < end; i++ {
-		lines = append(lines, p.renderRow(p.rows[i], i == p.cursor))
+		lines = append(lines, p.renderRow(p.rows[i], i == p.cursor, p.isSelected(i)))
 	}
 	for len(lines) < h+1 {
 		lines = append(lines, "")
@@ -180,7 +186,10 @@ func rowMeta(r row) string {
 	return fmt.Sprintf("%*s  %s", sizeColW, size, date)
 }
 
-func (p pane) renderRow(r row, selected bool) string {
+// renderRow draws one row. cursor is the highlighted row; marked means the row
+// is part of the multi-selection. The two-cell gutter carries both: the cursor
+// arrow in the first cell, the selection mark in the second.
+func (p pane) renderRow(r row, cursor, marked bool) string {
 	// Show the size/date columns only when the pane is wide enough.
 	showMeta := p.width >= metaColW+16
 	nameAvail := p.width - 2
@@ -196,18 +205,34 @@ func (p pane) renderRow(r row, selected bool) string {
 	if showMeta {
 		meta = rowMeta(r)
 	}
+	gutter := " "
+	if cursor {
+		gutter = "▶"
+	}
+	if marked {
+		gutter += "*"
+	} else {
+		gutter += " "
+	}
 
-	if selected {
+	if cursor {
 		fg := lipgloss.NewStyle().Foreground(fgColorFor(r)).Background(lipgloss.Color(colSelBg)).Bold(true)
+		if marked {
+			fg = fg.Foreground(lipgloss.Color(colGreen))
+		}
 		dim := lipgloss.NewStyle().Foreground(lipgloss.Color(colComment)).Background(lipgloss.Color(colSelBg))
-		line := fg.Render("▶ " + padRight(label, nameAvail))
+		line := fg.Render(gutter + padRight(label, nameAvail))
 		if showMeta {
 			line += dim.Render("  " + padRight(meta, metaColW))
 		}
 		return line
 	}
 
-	line := "  " + styleFor(r).Render(padRight(label, nameAvail))
+	st := styleFor(r)
+	if marked {
+		st = markStyle
+	}
+	line := st.Render(gutter + padRight(label, nameAvail))
 	if showMeta {
 		line += metaStyle.Render("  " + meta)
 	}
@@ -216,7 +241,7 @@ func (p pane) renderRow(r row, selected bool) string {
 
 func (m model) footer() string {
 	switch m.mode {
-	case modeFilter, modeRename, modeOpenWith:
+	case modeFilter, modeRename, modeOpenWith, modeArchive:
 		return promptStyle.Render(m.ti.View())
 	case modeConfirm:
 		return warnStyle.Render(m.confirmMsg + "  (y/n)")
@@ -231,7 +256,7 @@ func (m model) footer() string {
 			return statusStyle.Render(m.status)
 		}
 	}
-	hint := "hjkl move · tab switch pane · F5/F6 copy/move · / filter · f find · n newest · y/x/p yank/cut/paste · r rename · d delete · ? help · q quit"
+	hint := "hjkl move · tab switch pane · V/space select · F5/F6 copy/move · / filter · f find · y/x/p yank/cut/paste · r rename · d delete · ? help · q quit"
 	return hintStyle.Render(truncate(hint, m.width))
 }
 
@@ -289,6 +314,9 @@ func (m model) helpView() string {
 		{"gg", "go to top"},
 		{"G", "go to bottom"},
 		{"ctrl-d / ctrl-u", "half page down / up"},
+		{"V", "visual select (j/k extend, V keeps)"},
+		{"space", "select / deselect, move down"},
+		{"esc", "leave visual / clear selection"},
 		{"O", "open with… (app menu)"},
 		{"e", "edit in nvim"},
 		{"E", "open current dir in file manager"},

@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
-// clipEntry is the in-memory yank/cut clipboard (one item at a time).
+// clipEntry is the in-memory yank/cut clipboard. It holds every path from the
+// selection that was yanked or cut, in display order.
 type clipEntry struct {
-	path string
-	cut  bool // true = move on paste, false = copy
+	paths []string
+	cut   bool // true = move on paste, false = copy
 }
 
 // copyPath copies src to dst, recursively for directories.
@@ -102,4 +103,12 @@ func runZip(path string) (string, error) {
 		return "", err
 	}
 	return "Zipped: " + name + ".zip", nil
+}
+
+// zipInto packs several entries of dir into one archive, also written to dir.
+// names are bare entry names so the archive holds relative paths.
+func zipInto(dir, archive string, names []string) error {
+	cmd := exec.Command("zip", append([]string{"-r", archive}, names...)...)
+	cmd.Dir = dir
+	return cmd.Run()
 }

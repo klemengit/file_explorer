@@ -36,6 +36,9 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(colComment))
 
+	// markStyle paints rows that are part of the multi-selection.
+	markStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colGreen)).Bold(true)
+
 	metaStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colComment))
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colBlue))
 	titleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colBlue)).Bold(true)

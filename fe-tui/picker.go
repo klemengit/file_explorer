@@ -153,7 +153,7 @@ func (m model) pickerSelect() (tea.Model, tea.Cmd) {
 			m.startPrompt(modeOpenWith, "command…", "")
 			return m, m.ti.Focus()
 		}
-		cmd := m.launchApp(m.openWith[idx], m.openWithTarget)
+		cmd := m.launchApp(m.openWith[idx], m.openWithTargets)
 		return m, cmd
 	case pickCopy:
 		m.applyCopy(idx)

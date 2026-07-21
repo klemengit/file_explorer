@@ -19,6 +19,7 @@ const (
 	modeFilter
 	modeRename
 	modeOpenWith
+	modeArchive
 	modeConfirm
 	modePicker
 )
@@ -74,6 +75,14 @@ type pane struct {
 	sortMode sortMode
 	showDirs bool
 	showDots bool
+
+	// Multi-selection. marked holds the names of entries picked with space (or
+	// committed from a visual range); visual/anchor describe a live vim-style
+	// linewise selection that follows the cursor until it is committed or
+	// cancelled. Both are per-directory and reset when the pane moves.
+	marked map[string]bool
+	visual bool
+	anchor int
 }
 
 type model struct {
@@ -86,9 +95,9 @@ type model struct {
 	mode mode
 	ti   textinput.Model
 
-	confirmKind confirmKind
-	confirmPath string
-	confirmMsg  string
+	confirmKind  confirmKind
+	confirmPaths []string
+	confirmMsg   string
 
 	clip     *clipEntry
 	status   string
@@ -103,8 +112,8 @@ type model struct {
 	pickerCursor int
 	pickerTop    int
 
-	openWith       []app
-	openWithTarget string
+	openWith        []app
+	openWithTargets []string
 
 	copyItems []copyChoice
 }
@@ -261,7 +270,105 @@ func (p *pane) enterDir(path, filter string) error {
 	p.dir = path
 	p.cursor = 0
 	p.top = 0
+	p.clearSelection() // marks name entries of the old directory
 	return p.reload(filter)
+}
+
+// visualRange returns the inclusive row range covered by a live visual
+// selection, ordered low→high. ok is false when visual mode is off.
+func (p pane) visualRange() (lo, hi int, ok bool) {
+	if !p.visual {
+		return 0, 0, false
+	}
+	lo, hi = p.anchor, p.cursor
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	if lo < 0 {
+		lo = 0
+	}
+	if hi >= len(p.rows) {
+		hi = len(p.rows) - 1
+	}
+	return lo, hi, lo <= hi
+}
+
+// isSelected reports whether row i is part of the current selection — either
+// explicitly marked or inside the live visual range. ".." is never selectable.
+func (p pane) isSelected(i int) bool {
+	if i < 0 || i >= len(p.rows) || p.rows[i].isParent {
+		return false
+	}
+	if lo, hi, ok := p.visualRange(); ok && i >= lo && i <= hi {
+		return true
+	}
+	return p.marked[p.rows[i].name]
+}
+
+// selectedPaths returns the absolute paths of every selected row, in display
+// order, or nil when nothing is selected. Only visible rows count, so a mark
+// hidden by the current filter is left alone rather than acted on unseen.
+func (p pane) selectedPaths() []string {
+	var out []string
+	for i := range p.rows {
+		if p.isSelected(i) {
+			out = append(out, filepath.Join(p.dir, p.rows[i].name))
+		}
+	}
+	return out
+}
+
+// targets is what an action should operate on: the whole selection when there
+// is one, otherwise just the row under the cursor. Every bulk-capable command
+// goes through this, so single-item use is unchanged when nothing is selected.
+func (p pane) targets() []string {
+	if sel := p.selectedPaths(); len(sel) > 0 {
+		return sel
+	}
+	if t, ok := p.selectedTarget(); ok {
+		return []string{t}
+	}
+	return nil
+}
+
+// toggleMark flips the mark on the row under the cursor (never "..").
+func (p *pane) toggleMark() {
+	r, ok := p.current()
+	if !ok || r.isParent {
+		return
+	}
+	if p.marked == nil {
+		p.marked = make(map[string]bool)
+	}
+	if p.marked[r.name] {
+		delete(p.marked, r.name)
+	} else {
+		p.marked[r.name] = true
+	}
+}
+
+// commitVisual folds the live visual range into the marked set, then leaves
+// visual mode.
+func (p *pane) commitVisual() {
+	lo, hi, ok := p.visualRange()
+	p.visual = false
+	if !ok {
+		return
+	}
+	if p.marked == nil {
+		p.marked = make(map[string]bool)
+	}
+	for i := lo; i <= hi; i++ {
+		if !p.rows[i].isParent {
+			p.marked[p.rows[i].name] = true
+		}
+	}
+}
+
+// clearSelection drops every mark and leaves visual mode.
+func (p *pane) clearSelection() {
+	p.marked = nil
+	p.visual = false
 }
 
 func (p *pane) goParent(filter string) error {
@@ -346,7 +453,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateBrowse(msg)
 		case modeFilter:
 			return m.updateFilter(msg)
-		case modeRename, modeOpenWith:
+		case modeRename, modeOpenWith, modeArchive:
 			return m.updatePrompt(msg)
 		case modeConfirm:
 			return m.updateConfirm(msg)
@@ -382,6 +489,27 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		// Switch the active pane between left and right.
 		m.active = 1 - m.active
+	case "V":
+		// Vim-style linewise visual selection: V starts it at the cursor, j/k
+		// extend it, and a second V commits the range to the selection.
+		if p.visual {
+			p.commitVisual()
+			m.setStatus(lvlInfo, "%d selected", len(p.selectedPaths()))
+		} else {
+			p.visual = true
+			p.anchor = p.cursor
+		}
+	case " ", "space":
+		// Mark the row and step down, so tapping space runs down a block.
+		p.toggleMark()
+		p.move(1)
+	case "esc":
+		// First esc drops a live visual range, a second clears the marks.
+		if p.visual {
+			p.visual = false
+		} else if len(p.marked) > 0 {
+			p.clearSelection()
+		}
 	case "f5":
 		m.transfer(false)
 	case "f6":
@@ -417,35 +545,37 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setStatus(lvlErr, "xdg-open: %v", err)
 		}
 	case "O":
-		if target, ok := p.selectedTarget(); ok {
-			return m.openOpenWith(target)
+		if targets := p.targets(); len(targets) > 0 {
+			return m.openOpenWith(targets)
 		}
 	case "e":
-		if target, ok := p.selectedTarget(); ok {
-			c := exec.Command("nvim", target)
+		if targets := p.targets(); len(targets) > 0 {
+			c := exec.Command("nvim", targets...)
 			return m, tea.ExecProcess(c, func(err error) tea.Msg { return editFinishedMsg{err} })
 		}
 	case "y":
-		if target, ok := p.selectedTarget(); ok {
-			m.clip = &clipEntry{path: target, cut: false}
-			m.setStatus(lvlInfo, "Yanked: %s", filepath.Base(target))
+		if targets := p.targets(); len(targets) > 0 {
+			m.clip = &clipEntry{paths: targets, cut: false}
+			m.setStatus(lvlInfo, "Yanked: %s", describePaths(targets))
+			p.clearSelection()
 		}
 	case "x":
-		if target, ok := p.selectedTarget(); ok {
-			m.clip = &clipEntry{path: target, cut: true}
-			m.setStatus(lvlWarn, "Cut: %s", filepath.Base(target))
+		if targets := p.targets(); len(targets) > 0 {
+			m.clip = &clipEntry{paths: targets, cut: true}
+			m.setStatus(lvlWarn, "Cut: %s", describePaths(targets))
+			p.clearSelection()
 		}
 	case "p":
 		m.paste()
 	case "c":
-		if target, ok := p.selectedTarget(); ok {
-			return m.openCopyMenu(target)
+		if targets := p.targets(); len(targets) > 0 {
+			return m.openCopyMenu(targets)
 		}
 	case "d":
-		if target, ok := p.selectedTarget(); ok {
+		if targets := p.targets(); len(targets) > 0 {
 			m.confirmKind = confirmDelete
-			m.confirmPath = target
-			m.confirmMsg = fmt.Sprintf("Delete '%s'?", filepath.Base(target))
+			m.confirmPaths = targets
+			m.confirmMsg = fmt.Sprintf("Delete %s?", describeQuoted(targets))
 			m.mode = modeConfirm
 		}
 	case "r":
@@ -505,11 +635,12 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// transfer copies (move=false) or moves (move=true) the active pane's selected
-// entry into the other pane's directory.
+// transfer copies (move=false) or moves (move=true) the active pane's targets —
+// the whole selection, or the row under the cursor — into the other pane's
+// directory. A failure stops the run and reports the entry that failed.
 func (m *model) transfer(move bool) {
-	src, ok := m.cur().selectedTarget()
-	if !ok {
+	srcs := m.cur().targets()
+	if len(srcs) == 0 {
 		return
 	}
 	dstDir := m.other().dir
@@ -517,28 +648,42 @@ func (m *model) transfer(move bool) {
 		m.setStatus(lvlWarn, "Both panes show the same directory")
 		return
 	}
-	name := filepath.Base(src)
-	dst := filepath.Join(dstDir, name)
+	verb, failed := "copy", false
 	if move {
-		if err := movePath(src, dst); err != nil {
-			m.setStatus(lvlErr, "move: %v", err)
-			return
-		}
-	} else {
-		if err := copyPath(src, dst); err != nil {
-			m.setStatus(lvlErr, "copy: %v", err)
-			return
-		}
+		verb = "move"
 	}
-	// Refresh both panes; put the other pane's cursor on the new entry.
+	var last string
+	for _, src := range srcs {
+		name := filepath.Base(src)
+		dst := filepath.Join(dstDir, name)
+		var err error
+		if move {
+			err = movePath(src, dst)
+		} else {
+			err = copyPath(src, dst)
+		}
+		if err != nil {
+			m.setStatus(lvlErr, "%s %s: %v", verb, name, err)
+			failed = true
+			break
+		}
+		last = name
+	}
+	// Refresh both panes; put the other pane's cursor on the last new entry.
+	// A failed run keeps the selection so it can be retried or trimmed.
+	if !failed {
+		m.cur().clearSelection()
+	}
 	m.cur().reload(m.filterQuery())
 	m.other().reload("")
-	m.other().cursorTo(name)
-	verb := "Copied"
-	if move {
-		verb = "Moved"
+	m.other().cursorTo(last)
+	if !failed {
+		done := "Copied"
+		if move {
+			done = "Moved"
+		}
+		m.setStatus(lvlInfo, "%s %s → %s", done, describePaths(srcs), abbrevHome(dstDir))
 	}
-	m.setStatus(lvlInfo, "%s %s → %s", verb, name, abbrevHome(dstDir))
 }
 
 func (m model) openSelected() (tea.Model, tea.Cmd) {
@@ -565,9 +710,12 @@ func (m model) openSelected() (tea.Model, tea.Cmd) {
 
 func (m *model) startPrompt(md mode, placeholder, value string) {
 	m.mode = md
-	if md == modeRename {
+	switch md {
+	case modeRename:
 		m.ti.Prompt = "rename: "
-	} else {
+	case modeArchive:
+		m.ti.Prompt = "zip as: "
+	default:
 		m.ti.Prompt = "open with: "
 	}
 	m.ti.SetValue(value)
@@ -576,16 +724,26 @@ func (m *model) startPrompt(md mode, placeholder, value string) {
 	m.ti.Focus()
 }
 
+// paste drops the clipboard into the active pane's directory, asking once up
+// front if any of the entries would overwrite something already there.
 func (m *model) paste() {
-	if m.clip == nil {
+	if m.clip == nil || len(m.clip.paths) == 0 {
 		m.setStatus(lvlErr, "Nothing to paste")
 		return
 	}
-	target := filepath.Join(m.cur().dir, filepath.Base(m.clip.path))
-	if _, err := os.Lstat(target); err == nil {
+	var clashes []string
+	for _, src := range m.clip.paths {
+		name := filepath.Base(src)
+		if _, err := os.Lstat(filepath.Join(m.cur().dir, name)); err == nil {
+			clashes = append(clashes, name)
+		}
+	}
+	if len(clashes) > 0 {
 		m.confirmKind = confirmPaste
-		m.confirmPath = target
-		m.confirmMsg = fmt.Sprintf("Overwrite '%s'?", filepath.Base(target))
+		m.confirmMsg = fmt.Sprintf("Overwrite '%s'?", clashes[0])
+		if len(clashes) > 1 {
+			m.confirmMsg = fmt.Sprintf("Overwrite %d existing entries?", len(clashes))
+		}
 		m.mode = modeConfirm
 		return
 	}
@@ -596,38 +754,86 @@ func (m *model) doPaste() {
 	if m.clip == nil {
 		return
 	}
-	target := filepath.Join(m.cur().dir, filepath.Base(m.clip.path))
-	name := filepath.Base(m.clip.path)
-	if m.clip.cut {
-		if err := movePath(m.clip.path, target); err != nil {
-			m.setStatus(lvlErr, "move: %v", err)
-			return
+	paths, cut := m.clip.paths, m.clip.cut
+	var last string
+	done := 0
+	for _, src := range paths {
+		name := filepath.Base(src)
+		dst := filepath.Join(m.cur().dir, name)
+		var err error
+		if cut {
+			err = movePath(src, dst)
+		} else {
+			err = copyPath(src, dst)
 		}
-		m.clip = nil
-		m.setStatus(lvlInfo, "Moved: %s", name)
-	} else {
-		if err := copyPath(m.clip.path, target); err != nil {
-			m.setStatus(lvlErr, "copy: %v", err)
-			return
+		if err != nil {
+			m.setStatus(lvlErr, "paste %s: %v", name, err)
+			break
 		}
-		m.setStatus(lvlInfo, "Copied: %s", name)
+		done++
+		last = name
+	}
+	if cut {
+		// Drop what actually moved; anything left still exists at its source.
+		m.clip.paths = paths[done:]
+		if len(m.clip.paths) == 0 {
+			m.clip = nil
+		}
 	}
 	m.reload()
-	m.cur().cursorTo(name)
+	m.cur().cursorTo(last)
+	if done == len(paths) {
+		verb := "Copied"
+		if cut {
+			verb = "Moved"
+		}
+		m.setStatus(lvlInfo, "%s: %s", verb, describePaths(paths))
+	}
 }
 
+// zip archives the active pane's targets. A single entry keeps the old
+// behaviour (foo → foo.zip, or unzip a .zip); several entries go into one
+// archive, so it asks for a name first.
 func (m *model) zip() {
-	target, ok := m.cur().selectedTarget()
-	if !ok {
+	targets := m.cur().targets()
+	switch {
+	case len(targets) == 0:
+		return
+	case len(targets) == 1:
+		msg, err := runZip(targets[0])
+		if err != nil {
+			m.setStatus(lvlErr, "zip: %v", err)
+			return
+		}
+		m.cur().clearSelection()
+		m.reload()
+		m.setStatus(lvlInfo, "%s", msg)
+	default:
+		m.startPrompt(modeArchive, "archive name…", filepath.Base(m.cur().dir)+".zip")
+	}
+}
+
+// applyArchive zips the current selection into one archive named by the prompt.
+func (m *model) applyArchive(archive string) {
+	targets := m.cur().targets()
+	if archive == "" || len(targets) == 0 {
 		return
 	}
-	msg, err := runZip(target)
-	if err != nil {
+	if !strings.HasSuffix(archive, ".zip") {
+		archive += ".zip"
+	}
+	names := make([]string, len(targets))
+	for i, t := range targets {
+		names[i] = filepath.Base(t)
+	}
+	if err := zipInto(m.cur().dir, archive, names); err != nil {
 		m.setStatus(lvlErr, "zip: %v", err)
 		return
 	}
+	m.cur().clearSelection()
 	m.reload()
-	m.setStatus(lvlInfo, "%s", msg)
+	m.cur().cursorTo(archive)
+	m.setStatus(lvlInfo, "Zipped %d entries → %s", len(names), archive)
 }
 
 func (m model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -671,9 +877,12 @@ func (m model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		md := m.mode
 		m.mode = modeBrowse
 		m.ti.Blur()
-		if md == modeRename {
+		switch md {
+		case modeRename:
 			m.applyRename(val)
-		} else {
+		case modeArchive:
+			m.applyArchive(val)
+		default:
 			m.applyOpenWith(val)
 		}
 		return m, nil
@@ -703,12 +912,12 @@ func (m *model) applyRename(newName string) {
 }
 
 func (m *model) applyOpenWith(cmdline string) {
-	target, ok := m.cur().selectedTarget()
-	if !ok || cmdline == "" {
+	targets := m.cur().targets()
+	if len(targets) == 0 || cmdline == "" {
 		return
 	}
 	fields := strings.Fields(cmdline)
-	args := append(fields[1:], target)
+	args := append(fields[1:], targets...)
 	if err := openDetached(fields[0], args...); err != nil {
 		m.setStatus(lvlErr, "%v", err)
 	}
@@ -720,12 +929,22 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowse
 		switch m.confirmKind {
 		case confirmDelete:
-			name := filepath.Base(m.confirmPath)
-			if err := os.RemoveAll(m.confirmPath); err != nil {
-				m.setStatus(lvlErr, "delete: %v", err)
-			} else {
-				m.reload()
-				m.setStatus(lvlWarn, "Deleted: %s", name)
+			done := 0
+			for _, path := range m.confirmPaths {
+				if err := os.RemoveAll(path); err != nil {
+					m.setStatus(lvlErr, "delete %s: %v", filepath.Base(path), err)
+					break
+				}
+				done++
+			}
+			// Whatever was deleted drops out of the listing on reload, so a
+			// partial run leaves exactly the survivors selected.
+			if done == len(m.confirmPaths) {
+				m.cur().clearSelection()
+			}
+			m.reload()
+			if done == len(m.confirmPaths) {
+				m.setStatus(lvlWarn, "Deleted: %s", describePaths(m.confirmPaths))
 			}
 		case confirmPaste:
 			m.doPaste()
@@ -736,6 +955,24 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// describePaths names a batch for a status line: the entry's own name when
+// there is one, "N entries" otherwise.
+func describePaths(paths []string) string {
+	if len(paths) == 1 {
+		return filepath.Base(paths[0])
+	}
+	return fmt.Sprintf("%d entries", len(paths))
+}
+
+// describeQuoted is describePaths for prompts, where a lone name reads better
+// in quotes ("Delete 'notes.md'?" vs "Delete 3 entries?").
+func describeQuoted(paths []string) string {
+	if len(paths) == 1 {
+		return "'" + filepath.Base(paths[0]) + "'"
+	}
+	return fmt.Sprintf("%d entries", len(paths))
 }
 
 // fuzzyMatch reports whether pattern's characters appear in s in order

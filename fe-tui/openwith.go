@@ -2,7 +2,6 @@ package main
 
 import (
 	"os/exec"
-	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -108,10 +107,10 @@ func installedApps() []app {
 	return out
 }
 
-// openOpenWith builds the "open with" picker for target: a searchable list of
+// openOpenWith builds the "open with" picker for targets: a searchable list of
 // installed apps plus a trailing "Custom command…" entry that falls back to the
-// typed-command prompt.
-func (m model) openOpenWith(target string) (tea.Model, tea.Cmd) {
+// typed-command prompt. Every selected path is passed to the chosen app.
+func (m model) openOpenWith(targets []string) (tea.Model, tea.Cmd) {
 	apps := installedApps()
 	items := make([]string, 0, len(apps)+1)
 	for _, a := range apps {
@@ -120,9 +119,9 @@ func (m model) openOpenWith(target string) (tea.Model, tea.Cmd) {
 	items = append(items, "Custom command…")
 
 	m.openWith = apps
-	m.openWithTarget = target
+	m.openWithTargets = targets
 	m.pickerKind = pickOpenWith
-	m.pickerTitle = "open with  ·  " + filepath.Base(target)
+	m.pickerTitle = "open with  ·  " + describePaths(targets)
 	m.pickerAll = items
 	m.pickerCursor = 0
 	m.pickerTop = 0
@@ -134,10 +133,11 @@ func (m model) openOpenWith(target string) (tea.Model, tea.Cmd) {
 	return m, m.ti.Focus()
 }
 
-// launchApp runs a chosen app on target. Terminal apps take over the screen via
-// tea.ExecProcess (reloading the listing when they exit); GUI apps are detached.
-func (m *model) launchApp(a app, target string) tea.Cmd {
-	args := append(append([]string{}, a.argv[1:]...), target)
+// launchApp runs a chosen app on targets. Terminal apps take over the screen
+// via tea.ExecProcess (reloading the listing when they exit); GUI apps are
+// detached.
+func (m *model) launchApp(a app, targets []string) tea.Cmd {
+	args := append(append([]string{}, a.argv[1:]...), targets...)
 	if a.terminal {
 		c := exec.Command(a.argv[0], args...)
 		return tea.ExecProcess(c, func(err error) tea.Msg { return editFinishedMsg{err} })

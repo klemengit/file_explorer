@@ -59,6 +59,9 @@ very narrow terminals.
 | `gg`               | go to top                                |
 | `G`                | go to bottom                             |
 | `ctrl-d` / `ctrl-u`| half page down / up                      |
+| `V`                | visual select (`j`/`k` extend, `V` keeps)|
+| `space`            | select / deselect, then move down        |
+| `esc`              | leave visual mode / clear the selection  |
 | `O`                | open with… (searchable app menu)         |
 | `e`                | edit in `nvim`                           |
 | `E`                | open current dir in system file manager  |
@@ -83,6 +86,42 @@ very narrow terminals.
 In the filter and picker screens: type to narrow, `↑`/`↓` (or `ctrl-j`/`ctrl-k`)
 to move, `enter` to select, `esc` to cancel.
 
+### Multi-selection (`V`, `space`)
+
+Two vim-flavoured ways to select several entries at once:
+
+- **`V`** starts a linewise visual selection at the cursor. `j`/`k` (and every
+  other motion) extend or shrink it live. A second `V` keeps the range as a
+  selection; `esc` throws it away.
+- **`space`** toggles the entry under the cursor and steps down one row, so you
+  can tap it repeatedly to pick out a block.
+
+Selected rows are green and carry a `*` in the gutter next to the cursor arrow;
+the pane header shows `[2 selected]`, and `[VISUAL]` while a range is live.
+Pressing `esc` with no live range clears the selection.
+
+Every action that can sensibly work on more than one entry acts on the whole
+selection: `y` / `x` / `p` (yank, cut, paste), `d` (delete — one confirmation
+for the batch), `F5` / `F6` (copy / move to the other pane), `z` (zip),
+`c` (copy paths to the clipboard, one per line), `e` (open all in `nvim`) and
+`O` (open with…). With nothing selected they act on the row under the cursor
+exactly as before, so nothing changes when you don't use the feature.
+
+The action **consumes** the selection: once it has run, the marks are cleared
+(a partially failed run keeps whatever it didn't get to). The selection is also
+per-directory — it is dropped when the pane navigates elsewhere — and marks
+hidden by an active filter are left out, so a bulk action never touches
+something you can't see.
+
+`..` can never be selected.
+
+### Zipping several entries (`z`)
+
+With one entry selected (or none), `z` behaves as before: it zips
+`foo` → `foo.zip`, or unzips a `.zip`. With several entries selected it asks for
+an archive name — prefilled with the current directory's name — and packs them
+all into that one archive.
+
 ### Open with (`O`)
 
 `O` opens a searchable menu of applications for the highlighted file, rather
@@ -105,6 +144,9 @@ To add or reorder entries, edit the `curatedApps` list in `openwith.go`.
 highlighted entry: its **absolute path**, its **relative path** (relative to the
 directory `fe` was launched from), its **file name**, or its **directory**. Each
 row previews the exact text; `enter` copies it.
+
+With several entries selected each row copies the whole list — one path (or
+name) per line — and the menu previews them joined with `·`.
 
 This uses the system clipboard (via `wl-copy` / `xclip` / `xsel`), unlike the
 in-memory `y`/`x`/`p` yank-and-paste — so you can paste the path into other
