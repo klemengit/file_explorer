@@ -36,6 +36,11 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(colComment))
 
+	// drivesBorder frames the floating drives window (M).
+	drivesBorder = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colBlue))
+
 	// markStyle paints rows that are part of the multi-selection.
 	markStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colGreen)).Bold(true)
 

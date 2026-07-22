@@ -83,7 +83,155 @@ func (m model) View() string {
 	if m.mode == modePicker {
 		return m.pickerView()
 	}
+	if m.mode == modeDrives {
+		return m.drivesView()
+	}
 	return m.dualView()
+}
+
+// drivesView floats the drives window in the middle of the two panes, which
+// stay visible (dimmed only by being behind it) underneath.
+func (m model) drivesView() string {
+	box := m.drivesBox()
+	x := (m.width - lipgloss.Width(box)) / 2
+	y := (m.height - lipgloss.Height(box)) / 2
+	if y < 0 {
+		y = 0
+	}
+	return overlayBox(m.dualView(), box, x, y, m.width)
+}
+
+const (
+	drivesWidth  = 62 // preferred inner width of the drives popup
+	driveSizeW   = 7
+	driveFSW     = 6
+	driveFixedW  = 3 + driveSizeW + driveFSW + 4 // gutter + size + fstype + gaps
+	drivesMinRow = 6
+)
+
+// drivesBox renders the popup itself: a title, one line per drive, a detail
+// line for the highlighted drive, and the key hints.
+func (m model) drivesBox() string {
+	inner := drivesWidth
+	if lim := m.width - 6; inner > lim {
+		inner = lim
+	}
+	if inner < 28 {
+		inner = 28
+	}
+
+	title := "drives"
+	if n := len(m.drives); n > 0 {
+		title = fmt.Sprintf("drives (%d)", n)
+	}
+	lines := []string{titleStyle.Render(padRight(" "+title, inner))}
+	if len(m.drives) == 0 {
+		lines = append(lines, hintStyle.Render(padRight("  no external drives found", inner)))
+	} else {
+		top, n := m.driveWindow()
+		for i := top; i < top+n; i++ {
+			lines = append(lines, m.driveRow(i, inner))
+		}
+	}
+	lines = append(lines, m.driveStatusLine(inner))
+	hint := " enter open · u unmount · e eject · r refresh · esc close"
+	lines = append(lines, hintStyle.Render(padRight(truncate(hint, inner), inner)))
+
+	return drivesBorder.Render(strings.Join(lines, "\n"))
+}
+
+// driveWindow returns the first visible drive index and how many fit, scrolling
+// to keep the cursor in view when there are more drives than room.
+func (m model) driveWindow() (top, n int) {
+	// Border, title, detail and hint lines all come off the terminal height.
+	avail := m.height - 7
+	if avail < drivesMinRow {
+		avail = drivesMinRow
+	}
+	if len(m.drives) <= avail {
+		return 0, len(m.drives)
+	}
+	top = m.driveCursor - avail/2
+	if top > len(m.drives)-avail {
+		top = len(m.drives) - avail
+	}
+	if top < 0 {
+		top = 0
+	}
+	return top, avail
+}
+
+// driveRow draws one drive as: gutter, label, size, filesystem, mountpoint.
+// Every segment is padded to a fixed width before styling, so the popup's right
+// border stays straight.
+func (m model) driveRow(i, inner int) string {
+	d := m.drives[i]
+
+	rest := inner - driveFixedW
+	nameW := rest * 45 / 100
+	if nameW < 6 {
+		nameW = 6
+	}
+	locW := rest - nameW
+
+	gutter := "   "
+	if i == m.driveCursor {
+		gutter = " ▶ "
+	}
+	size := "-"
+	if d.size >= 0 {
+		size = humanSize(d.size)
+	}
+	loc := "not mounted"
+	if d.mounted() {
+		loc = abbrevHome(d.mount)
+	}
+
+	name := padRight(truncate(d.label, nameW), nameW)
+	meta := fmt.Sprintf(" %*s %s %s ",
+		driveSizeW, truncate(size, driveSizeW),
+		padRight(truncate(d.fstype, driveFSW), driveFSW),
+		padRight(truncate(loc, locW), locW))
+
+	if i == m.driveCursor {
+		return cursorStyle.Foreground(lipgloss.Color(colFg)).Render(gutter + name + meta)
+	}
+	nameStyle := fileStyle
+	if d.mounted() {
+		nameStyle = dirStyle // mounted drives read like directories you can enter
+	}
+	return hintStyle.Render(gutter) + nameStyle.Render(name) + metaStyle.Render(meta)
+}
+
+// driveStatusLine shows whatever matters most right now: a running action, the
+// result of the last one, or the highlighted drive's details.
+func (m model) driveStatusLine(inner int) string {
+	pad := func(s string) string { return padRight(truncate(" "+s, inner), inner) }
+	switch {
+	case m.driveBusy != "":
+		return warnStyle.Render(pad(m.driveBusy))
+	case m.driveNote != "":
+		st := statusStyle
+		switch m.driveNoteLv {
+		case lvlWarn:
+			st = warnStyle
+		case lvlErr:
+			st = errStyle
+		}
+		return st.Render(pad(m.driveNote))
+	}
+	d, ok := m.currentDrive()
+	if !ok {
+		return strings.Repeat(" ", inner)
+	}
+	detail := d.dev
+	if d.fstype != "" {
+		detail += " · " + d.fstype
+	}
+	if d.free >= 0 && d.size >= 0 {
+		detail += fmt.Sprintf(" · %s free of %s", humanSize(d.free), humanSize(d.size))
+	}
+	return metaStyle.Render(pad(detail))
 }
 
 // dualView renders both panes in side-by-side bordered boxes (the active pane
@@ -335,6 +483,7 @@ func (m model) helpView() string {
 		{"n", "cycle sort: newest → oldest → name"},
 		{"m", "bookmark dir"},
 		{"b", "jump to bookmark"},
+		{"M", "external drives (u unmount, e eject)"},
 		{"?", "toggle this help"},
 		{"q / ctrl-c", "quit"},
 	}

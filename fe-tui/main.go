@@ -22,6 +22,7 @@ const (
 	modeArchive
 	modeConfirm
 	modePicker
+	modeDrives
 )
 
 type confirmKind int
@@ -116,6 +117,14 @@ type model struct {
 	openWithTargets []string
 
 	copyItems []copyChoice
+
+	// External-drives window (M). driveBusy is non-empty while a mount,
+	// unmount or eject is running, which also locks out its keys.
+	drives      []drive
+	driveCursor int
+	driveBusy   string
+	driveNote   string
+	driveNoteLv int
 }
 
 func newModel(dir string) model {
@@ -444,6 +453,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reload()
 		return m, nil
 
+	case driveResultMsg:
+		return m.applyDriveResult(msg)
+
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -459,6 +471,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateConfirm(msg)
 		case modePicker:
 			return m.updatePicker(msg)
+		case modeDrives:
+			return m.updateDrives(msg)
 		}
 	}
 	return m, nil
@@ -615,6 +629,8 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "b":
 		return m.openPicker(pickBookmarks)
+	case "M":
+		return m.openDrives()
 	case "t":
 		// Toggle between name order and newest-first.
 		if p.sortMode == sortName {

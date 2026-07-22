@@ -29,9 +29,11 @@ func TestAbbrevHome(t *testing.T) {
 	}
 }
 
-var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+// ansiRe matches SGR escape sequences; named to leave "ansi" free for the
+// charmbracelet/x/ansi package imported elsewhere in the package.
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func strip(s string) string { return ansi.ReplaceAllString(s, "") }
+func strip(s string) string { return ansiRe.ReplaceAllString(s, "") }
 
 func TestHumanSize(t *testing.T) {
 	cases := map[int64]string{0: "0B", 512: "512B", 1500: "1.5K", 4200000: "4.0M"}

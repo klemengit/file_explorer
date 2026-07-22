@@ -34,8 +34,9 @@ After editing the source (for example adding apps to `curatedApps` in
 `openwith.go`), just re-run the two commands above to rebuild and reinstall.
 
 Optional external tools (same as the shell version): `nvim` (edit), `xdg-open`
-(open files / open dir in file manager), `zip` / `unzip`. The `O` open-with menu
-picks up any of a broad set of apps found on your `PATH`.
+(open files / open dir in file manager), `zip` / `unzip`, plus `lsblk` and
+`udisksctl` for the `M` drives window. The `O` open-with menu picks up any of a
+broad set of apps found on your `PATH`.
 
 ## Usage
 
@@ -80,6 +81,7 @@ very narrow terminals.
 | `n`                | cycle sort: newest → oldest → name        |
 | `m`                | bookmark current directory               |
 | `b`                | jump to a bookmark (`ctrl-d` deletes)    |
+| `M`                | external drives (mount / unmount / eject)|
 | `?`                | toggle help                              |
 | `q` / `ctrl-c`     | quit                                     |
 
@@ -137,6 +139,44 @@ to fuzzy-filter, `enter` to launch.
   the bottom and drops into a free-form command prompt (the old `O` behaviour).
 
 To add or reorder entries, edit the `curatedApps` list in `openwith.go`.
+
+### External drives (`M`)
+
+`M` opens a small window floating over the two panes that lists your external
+drives — USB sticks, SD cards, external disks: anything `lsblk` reports as
+removable or hotplug. Internal partitions and your root filesystem are
+deliberately left out, so there is no way to eject the disk you are running on.
+
+Each row shows the drive's label (falling back to its vendor and model), its
+size, its filesystem and where it is mounted; the line underneath gives the
+device node and how much space is free.
+
+This window is modal: only its own keys do anything, so the browse commands
+(`y`, `p`, `d`, `z`, …) stay inert while it is open.
+
+| Key             | Action                                              |
+|-----------------|-----------------------------------------------------|
+| `j` / `k`       | move                                                |
+| `enter` / `l`   | open the drive in the active pane, mounting it first if needed |
+| `u`             | unmount                                             |
+| `e`             | eject — unmount, then power the device off          |
+| `r`             | re-read the drive list                              |
+| `esc` / `q`     | close                                               |
+
+Unmounted drives are listed too: `enter` mounts them (via `udisksctl`, which
+needs no root) and jumps straight in. `u` just unmounts; `e` additionally powers
+the device down so it is safe to unplug — and if the hardware refuses the
+power-off, the status line says the drive was only unmounted rather than
+claiming otherwise.
+
+Mount and eject run in the background, so the window stays drawn and reports
+`Ejecting …` while it works; keys are ignored until it finishes. If a pane was
+browsing inside a drive you just unmounted, that pane falls back to your home
+directory instead of showing a directory that no longer exists.
+
+Requires `lsblk` (util-linux, present on any Linux) for the listing, and
+`udisksctl` (udisks2) for mounting and powering off; `umount` and `eject` are
+used as fallbacks where they can stand in.
 
 ### Copy to clipboard (`c`)
 
