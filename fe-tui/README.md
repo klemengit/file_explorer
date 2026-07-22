@@ -72,6 +72,7 @@ very narrow terminals.
 | `c`                | copy path / name to clipboard (menu)     |
 | `d`                | delete (with confirmation)               |
 | `r`                | rename                                   |
+| `a`                | new file — or folder, if the name ends `/`|
 | `z`                | zip / unzip                              |
 | `s` / `/`          | filter (type; `esc` exits)               |
 | `t`                | sort by name / newest                    |
@@ -101,6 +102,26 @@ file under the current directory, so it wants all the room it can get.
 The help window lays the bindings out in two columns when the terminal is wide
 enough and falls back to one column when it isn't; if the list still doesn't
 fit, `j`/`k` (and `ctrl-d`/`ctrl-u`, `g`/`G`) scroll it.
+
+### Creating files and folders (`a`)
+
+`a` asks for a name and makes it in the active pane's directory. One prompt
+covers both cases: a plain name gives you an empty **file**, and a name ending
+in `/` gives you a **folder**.
+
+```
+a  →  report.md           an empty file
+a  →  drafts/             a directory
+a  →  drafts/v2/notes.md  the file, plus any parent directories it needs
+```
+
+Missing parent directories are created along the way, so you can type a whole
+path in one go. The cursor then lands on the new entry's first component
+(`drafts` in the last example), which is the part actually visible here.
+
+Names have to stay inside the directory you're in: absolute paths and names
+that climb out with `..` are refused, as is a name that already exists — `a`
+never overwrites anything.
 
 ### Multi-selection (`V`, `space`)
 
@@ -175,6 +196,7 @@ This window is modal: only its own keys do anything, so the browse commands
 | `u`             | unmount                                             |
 | `e`             | eject — unmount, then power the device off          |
 | `r`             | re-read the drive list                              |
+| `F`             | force unmount — only offered after a "busy" failure |
 | `esc` / `q`     | close                                               |
 
 Unmounted drives are listed too: `enter` mounts them (via `udisksctl`, which
@@ -191,6 +213,44 @@ directory instead of showing a directory that no longer exists.
 Requires `lsblk` (util-linux, present on any Linux) for the listing, and
 `udisksctl` (udisks2) for mounting and powering off; `umount` and `eject` are
 used as fallbacks where they can stand in.
+
+#### When the drive is busy
+
+A drive won't unmount while something still has a file open on it, and the
+error the system gives back is famously unhelpful:
+
+```
+Error unmounting /dev/sda1: GDBus.Error:org.freedesktop.UDisks2.Error.DeviceBusy: …
+```
+
+`fe` cuts that down to the part that matters and then answers the obvious next
+question — *what* is holding it — by listing the offending processes with their
+PID, name, and the file or directory each one has open:
+
+```
+ USB DISK is busy — 2 processes are using it
+   12345  nvim            /notes.md
+     999  bash            /
+```
+
+Paths are shown relative to the drive, so it's usually clear at a glance which
+window to go and close. Do that, press `r` to re-check, and the unmount will go
+through.
+
+The list is gathered from `/proc`, so it needs no extra tools — but for the
+same reason it only sees your own processes. If nothing can be identified the
+window says so ("something still has it open") rather than pretending the drive
+is free.
+
+If you'd rather not hunt down the process, `F` forces a **lazy unmount**: the
+filesystem is detached immediately and cleaned up once the last process lets
+go. This is offered only after a busy failure, and only on its own key, because
+anything not yet written to the drive can be lost. Closing the program properly
+is always the safer route.
+
+One thing `fe` handles on your behalf: if `fe` itself was started from inside
+the drive, its own working directory would pin the mount, so it steps back to
+your home directory before unmounting.
 
 ### Copy to clipboard (`c`)
 

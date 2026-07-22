@@ -188,6 +188,14 @@ type driveResultMsg struct {
 	freed string // mountpoint released, so open panes can be moved out of it
 	enter bool   // navigate into the drive once it is mounted
 	err   error
+
+	// Set when err is "target is busy": the drive we failed to release, the
+	// operation to retry ("unmount" or "eject") and the processes holding it,
+	// so the window can name them and offer a forced unmount instead of just
+	// repeating the error.
+	busy    *drive
+	busyOp  string
+	holders []holder
 }
 
 // run executes a command and folds its output into the error, since udisksctl
@@ -200,7 +208,7 @@ func run(name string, args ...string) error {
 	if errors.Is(err, exec.ErrNotFound) {
 		return fmt.Errorf("%s not found", name)
 	}
-	if msg := firstLine(string(out)); msg != "" {
+	if msg := cleanUdisksError(firstLine(string(out))); msg != "" {
 		return errors.New(msg)
 	}
 	return err
@@ -234,23 +242,35 @@ func mountDriveCmd(d drive, enter bool) tea.Cmd {
 	}
 }
 
-func unmountDriveCmd(d drive) tea.Cmd {
+func unmountDriveCmd(d drive, force bool) tea.Cmd {
 	return func() tea.Msg {
-		if err := unmountDrive(d); err != nil {
-			return driveResultMsg{dev: d.dev, err: err}
+		if err := unmountDrive(d, force); err != nil {
+			return busyOrPlain(d, "unmount", err)
 		}
 		return driveResultMsg{dev: d.dev, freed: d.mount, text: "Unmounted " + d.label}
 	}
 }
 
+// busyOrPlain turns a failed release into a result message, attaching the list
+// of processes holding the mount when the failure was "target is busy" — the
+// error alone doesn't say who, which is the only useful thing to know.
+func busyOrPlain(d drive, op string, err error) driveResultMsg {
+	msg := driveResultMsg{dev: d.dev, err: err}
+	if isBusyErr(err) {
+		msg.busy, msg.busyOp = &d, op
+		msg.holders = busyHolders("/proc", d.mount)
+	}
+	return msg
+}
+
 // ejectDriveCmd unmounts and then powers the device down, so the drive can be
 // unplugged. If power-off isn't supported the unmount still stands and the
 // status says so rather than claiming a safe removal.
-func ejectDriveCmd(d drive) tea.Cmd {
+func ejectDriveCmd(d drive, force bool) tea.Cmd {
 	return func() tea.Msg {
-		off, err := ejectDrive(d)
+		off, err := ejectDrive(d, force)
 		if err != nil {
-			return driveResultMsg{dev: d.dev, err: err}
+			return busyOrPlain(d, "eject", err)
 		}
 		text := "Ejected " + d.label + " — safe to remove"
 		if !off {
@@ -268,6 +288,7 @@ func (m model) openDrives() (tea.Model, tea.Cmd) {
 	m.driveCursor = 0
 	m.driveBusy = ""
 	m.driveNote, m.driveNoteLv = "", lvlInfo
+	m.clearStuck()
 	m.refreshDrives()
 	return m, nil
 }
@@ -332,8 +353,28 @@ func (m model) updateDrives(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "G", "end":
 		m.moveDriveCursor(len(m.drives))
 	case "r":
+		// A recheck also re-reads who is holding a stuck drive, so closing
+		// the offending program and pressing r clears the warning.
 		m.driveNote = ""
+		if m.driveStuck != nil {
+			m.driveHolders = busyHolders("/proc", m.driveStuck.mount)
+		}
 		m.refreshDrives()
+	case "F":
+		// Forced (lazy) unmount, offered only after a busy failure and only
+		// on its own key, so it can never happen by accident.
+		if m.driveStuck == nil {
+			break
+		}
+		d, op := *m.driveStuck, m.driveStuckOp
+		m.clearStuck()
+		m.driveNote = ""
+		if op == "eject" {
+			m.driveBusy = "Force-ejecting " + d.label + "…"
+			return m, ejectDriveCmd(d, true)
+		}
+		m.driveBusy = "Force-unmounting " + d.label + "…"
+		return m, unmountDriveCmd(d, true)
 	case "enter", "l", "right":
 		d, ok := m.currentDrive()
 		if !ok {
@@ -358,16 +399,18 @@ func (m model) updateDrives(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.driveNote = ""
+		m.clearStuck()
 		m.driveBusy = "Unmounting " + d.label + "…"
-		return m, unmountDriveCmd(d)
+		return m, unmountDriveCmd(d, false)
 	case "e":
 		d, ok := m.currentDrive()
 		if !ok {
 			break
 		}
 		m.driveNote = ""
+		m.clearStuck()
 		m.driveBusy = "Ejecting " + d.label + "…"
-		return m, ejectDriveCmd(d)
+		return m, ejectDriveCmd(d, false)
 	}
 	return m, nil
 }
@@ -379,9 +422,15 @@ func (m model) applyDriveResult(msg driveResultMsg) (tea.Model, tea.Cmd) {
 	m.driveBusy = ""
 	if msg.err != nil {
 		m.driveNote, m.driveNoteLv = msg.err.Error(), lvlErr
+		if msg.busy != nil {
+			m.driveStuck, m.driveStuckOp = msg.busy, msg.busyOp
+			m.driveHolders = msg.holders
+			m.driveNote = fmt.Sprintf("%s is busy — %s", msg.busy.label, describeHolders(msg.holders))
+		}
 		m.refreshDrives()
 		return m, nil
 	}
+	m.clearStuck()
 	m.driveNote, m.driveNoteLv = msg.text, lvlInfo
 	if msg.freed != "" {
 		m.evacuate(msg.freed)
@@ -400,6 +449,27 @@ func (m model) applyDriveResult(msg driveResultMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// clearStuck forgets a previous busy failure, so the force-unmount offer
+// disappears once the situation has moved on.
+func (m *model) clearStuck() {
+	m.driveStuck, m.driveStuckOp, m.driveHolders = nil, "", nil
+}
+
+// describeHolders summarises who is keeping a mount busy, for the one-line
+// note. The per-process detail goes in the lines underneath it.
+func describeHolders(hs []holder) string {
+	switch len(hs) {
+	case 0:
+		// Either nothing readable in /proc, or the holder belongs to another
+		// user, whose links we can't follow without root.
+		return "something still has it open"
+	case 1:
+		return fmt.Sprintf("%s (%d) is using it", hs[0].name, hs[0].pid)
+	default:
+		return fmt.Sprintf("%d processes are using it", len(hs))
+	}
 }
 
 // evacuate moves any pane browsing inside the mountpoint mp (which has just
@@ -422,21 +492,41 @@ func (m *model) evacuate(mp string) {
 	}
 }
 
-func unmountDrive(d drive) error {
+// unmountDrive releases d. With force it asks for a lazy unmount, which
+// detaches the filesystem even while processes still hold it — only ever
+// reached by an explicit second keypress, since unflushed writes can be lost.
+func unmountDrive(d drive, force bool) error {
 	if !d.mounted() {
 		return nil
 	}
-	if haveUdisks() {
-		return run("udisksctl", "unmount", "-b", d.dev)
+	// Never keep the mount busy ourselves: if fe was started from inside the
+	// drive, our own working directory pins it.
+	if cwd, err := os.Getwd(); err == nil && underMount(cwd, d.mount) {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			os.Chdir(home)
+		} else {
+			os.Chdir("/")
+		}
 	}
-	return run("umount", d.dev)
+	if haveUdisks() {
+		args := []string{"unmount", "-b", d.dev}
+		if force {
+			args = append(args, "--force")
+		}
+		return run("udisksctl", args...)
+	}
+	args := []string{d.dev}
+	if force {
+		args = append([]string{"-l"}, args...)
+	}
+	return run("umount", args...)
 }
 
 // ejectDrive unmounts d and powers off its whole-disk device. It reports
 // whether the power-off actually happened; optical drives and a few bridges
 // reject power-off, in which case `eject` is tried instead.
-func ejectDrive(d drive) (bool, error) {
-	if err := unmountDrive(d); err != nil {
+func ejectDrive(d drive, force bool) (bool, error) {
+	if err := unmountDrive(d, force); err != nil {
 		return false, err
 	}
 	if haveUdisks() {

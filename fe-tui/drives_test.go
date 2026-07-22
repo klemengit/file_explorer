@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -229,5 +230,127 @@ func TestEvacuateLeavesUnmountedDir(t *testing.T) {
 	}
 	if m.panes[1].dir != dir {
 		t.Errorf("pane 1 moved but shouldn't have: %s", m.panes[1].dir)
+	}
+}
+
+// stuckModel is a drives window that has just failed to unmount a drive
+// because two processes are holding it.
+func stuckModel() (model, drive) {
+	d := drive{dev: "/dev/sdb1", parent: "/dev/sdb", label: "USB DISK",
+		fstype: "vfat", mount: "/run/media/u/USB", size: 1 << 30, free: 1 << 29}
+	m := model{mode: modeDrives, width: 100, height: 30}
+	m.drives = []drive{d}
+	tm, _ := m.applyDriveResult(driveResultMsg{
+		dev: d.dev, err: errors.New("target is busy"),
+		busy: &d, busyOp: "unmount",
+		holders: []holder{
+			{pid: 12345, name: "nvim", what: "/run/media/u/USB/notes.md"},
+			{pid: 999, name: "bash", what: "/run/media/u/USB"},
+		},
+	})
+	return tm.(model), d
+}
+
+func TestBusyUnmountNamesHoldersAndOffersForce(t *testing.T) {
+	m, _ := stuckModel()
+
+	if m.driveStuck == nil {
+		t.Fatal("a busy failure should arm the force offer")
+	}
+	if m.driveStuckOp != "unmount" {
+		t.Errorf("retry op = %q, want unmount", m.driveStuckOp)
+	}
+	if !strings.Contains(m.driveNote, "USB DISK") || !strings.Contains(m.driveNote, "2 processes") {
+		t.Errorf("note = %q, want the drive named and the holders counted", m.driveNote)
+	}
+
+	box := m.drivesBox()
+	for _, want := range []string{"12345", "nvim", "notes.md", "999", "bash", "F force unmount"} {
+		if !strings.Contains(box, want) {
+			t.Errorf("drives box missing %q:\n%s", want, box)
+		}
+	}
+}
+
+func TestForceKeyOnlyWorksAfterBusyFailure(t *testing.T) {
+	// With nothing stuck, F is inert — it must never be a live unmount key.
+	clean := model{mode: modeDrives, width: 100, height: 30}
+	clean.drives = []drive{{dev: "/dev/sdb1", label: "USB DISK", mount: "/run/media/u/USB"}}
+	next, cmd := clean.updateDrives(keyRune('F'))
+	if cmd != nil {
+		t.Error("F must do nothing when no unmount has failed")
+	}
+	if next.(model).driveBusy != "" {
+		t.Error("F started an action without a prior busy failure")
+	}
+
+	m, _ := stuckModel()
+	after, cmd := m.updateDrives(keyRune('F'))
+	if cmd == nil {
+		t.Fatal("F should retry the unmount with force")
+	}
+	got := after.(model)
+	if got.driveBusy == "" {
+		t.Error("the forced retry should show a busy line")
+	}
+	if got.driveStuck != nil {
+		t.Error("the force offer should be consumed by the retry")
+	}
+}
+
+func TestBusyStateClearsOnSuccess(t *testing.T) {
+	m, d := stuckModel()
+	tm, _ := m.applyDriveResult(driveResultMsg{dev: d.dev, freed: d.mount, text: "Unmounted USB DISK"})
+	got := tm.(model)
+
+	if got.driveStuck != nil || got.driveHolders != nil {
+		t.Error("a successful unmount should clear the force offer")
+	}
+	if strings.Contains(got.drivesBox(), "F force") {
+		t.Error("the force hint outlived the failure it belonged to")
+	}
+}
+
+func TestHolderListIsCappedAndShrinksDriveList(t *testing.T) {
+	m, _ := stuckModel()
+	var many []holder
+	for i := 0; i < driveHolderMax+4; i++ {
+		many = append(many, holder{pid: 1000 + i, name: "proc", what: "/run/media/u/USB/f"})
+	}
+	m.driveHolders = many
+
+	if got, want := m.driveHolderRows(), driveHolderMax+1; got != want {
+		t.Errorf("holder rows = %d, want %d (cap plus the overflow line)", got, want)
+	}
+	lines := m.driveHolderLines(m.popupInner(drivesWidth))
+	if len(lines) != driveHolderMax+1 {
+		t.Fatalf("rendered %d holder lines, want %d", len(lines), driveHolderMax+1)
+	}
+	if !strings.Contains(lines[len(lines)-1], "and 4 more") {
+		t.Errorf("last line should count the hidden holders, got %q", lines[len(lines)-1])
+	}
+}
+
+func TestBusyNoteSurvivesUnreadableProc(t *testing.T) {
+	// /proc gave us nothing (holder owned by another user, say). The window
+	// must still explain itself and still offer the force retry.
+	d := drive{dev: "/dev/sdb1", label: "USB DISK", mount: "/run/media/u/USB"}
+	m := model{mode: modeDrives, width: 100, height: 30}
+	m.drives = []drive{d}
+	tm, _ := m.applyDriveResult(driveResultMsg{
+		dev: d.dev, err: errors.New("target is busy"), busy: &d, busyOp: "eject"})
+	got := tm.(model)
+
+	if got.driveStuck == nil || got.driveStuckOp != "eject" {
+		t.Fatal("busy failure with no holders should still arm the force offer")
+	}
+	if !strings.Contains(got.driveNote, "something still has it open") {
+		t.Errorf("note = %q, want an honest 'we don't know who' message", got.driveNote)
+	}
+	if got.driveHolderRows() != 0 {
+		t.Error("no holders means no holder lines")
+	}
+	if !strings.Contains(got.drivesBox(), "F force eject") {
+		t.Error("force hint should name the operation being retried")
 	}
 }

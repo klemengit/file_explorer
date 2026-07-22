@@ -18,6 +18,7 @@ const (
 	modeBrowse mode = iota
 	modeFilter
 	modeRename
+	modeCreate
 	modeOpenWith
 	modeArchive
 	modeConfirm
@@ -126,6 +127,13 @@ type model struct {
 	driveBusy   string
 	driveNote   string
 	driveNoteLv int
+
+	// Set after an unmount or eject failed with "target is busy": the drive
+	// to retry, whether the retry should eject, and the processes holding it.
+	// While this is set the window offers a forced (lazy) unmount.
+	driveStuck   *drive
+	driveStuckOp string // "unmount" or "eject" — what to retry with force
+	driveHolders []holder
 }
 
 func newModel(dir string) model {
@@ -466,7 +474,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateBrowse(msg)
 		case modeFilter:
 			return m.updateFilter(msg)
-		case modeRename, modeOpenWith, modeArchive:
+		case modeRename, modeCreate, modeOpenWith, modeArchive:
 			return m.updatePrompt(msg)
 		case modeConfirm:
 			return m.updateConfirm(msg)
@@ -617,6 +625,8 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if target, ok := p.selectedTarget(); ok {
 			m.startPrompt(modeRename, "new name…", filepath.Base(target))
 		}
+	case "a":
+		m.startPrompt(modeCreate, "name, end with / for a folder…", "")
 	case "z":
 		m.zip()
 	case "s", "/":
@@ -751,6 +761,8 @@ func (m *model) startPrompt(md mode, placeholder, value string) {
 	switch md {
 	case modeRename:
 		m.ti.Prompt = "rename: "
+	case modeCreate:
+		m.ti.Prompt = "new: "
 	case modeArchive:
 		m.ti.Prompt = "zip as: "
 	default:
@@ -918,6 +930,8 @@ func (m model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch md {
 		case modeRename:
 			m.applyRename(val)
+		case modeCreate:
+			m.applyCreate(val)
 		case modeArchive:
 			m.applyArchive(val)
 		default:
@@ -947,6 +961,56 @@ func (m *model) applyRename(newName string) {
 	m.reload()
 	m.cur().cursorTo(newName)
 	m.setStatus(lvlInfo, "Renamed to %s", newName)
+}
+
+// applyCreate makes a new entry in the active pane's directory. A trailing "/"
+// asks for a directory, anything else for an empty file; either way the leading
+// path components are created too, so "drafts/v2/notes.md" works in one go.
+// The cursor lands on whatever the name's first component is, so the new entry
+// is visible even when it was made a few levels down.
+func (m *model) applyCreate(name string) {
+	if name == "" {
+		return
+	}
+	isDir := strings.HasSuffix(name, "/")
+	clean := filepath.Clean(strings.TrimSuffix(name, "/"))
+	// Keep creation inside the directory on screen: no absolute paths, and no
+	// climbing out with "..".
+	if filepath.IsAbs(name) || clean == ".." || strings.HasPrefix(clean, "../") {
+		m.setStatus(lvlErr, "new: name must stay inside this directory")
+		return
+	}
+	dst := filepath.Join(m.cur().dir, clean)
+	if _, err := os.Lstat(dst); err == nil {
+		m.setStatus(lvlErr, "new: %s already exists", clean)
+		return
+	}
+
+	what := "file"
+	if isDir {
+		what = "folder"
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			m.setStatus(lvlErr, "new: %v", err)
+			return
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			m.setStatus(lvlErr, "new: %v", err)
+			return
+		}
+		// O_EXCL so a racing creation is reported rather than truncated away.
+		f, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			m.setStatus(lvlErr, "new: %v", err)
+			return
+		}
+		f.Close()
+	}
+
+	m.reload()
+	first, _, _ := strings.Cut(clean, string(filepath.Separator))
+	m.cur().cursorTo(first)
+	m.setStatus(lvlInfo, "Created %s %s", what, clean)
 }
 
 func (m *model) applyOpenWith(cmdline string) {

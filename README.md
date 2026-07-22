@@ -15,7 +15,8 @@ different keybindings.
 | Two panes side by side | yes | no |
 | Multi-key bindings (`gg`, `G`) | yes | no — `fzf` owns the keys |
 | Multi-selection (`V`, `space`) | yes | no |
-| External drives window (`M`) | yes — mount / unmount / eject | no |
+| Create files / folders (`a`) | yes | no |
+| External drives window (`M`) | yes — mount / unmount / eject, and it names whatever is keeping a busy drive from unmounting | no |
 | Leaves your shell in the browsed dir | no | yes |
 
 **Start with [`fe-tui/README.md`](fe-tui/README.md)** — that's the current

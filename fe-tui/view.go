@@ -99,6 +99,14 @@ const (
 	driveFSW     = 6
 	driveFixedW  = 3 + driveSizeW + driveFSW + 4 // gutter + size + fstype + gaps
 	drivesMinRow = 6
+
+	// Layout of the "what is holding this drive" lines shown after a busy
+	// unmount. The list is capped so a runaway process count can't push the
+	// drives themselves off the popup.
+	driveHolderMax    = 6
+	driveHolderPIDW   = 7
+	driveHolderNameW  = 14
+	driveHolderFixedW = 2 + driveHolderPIDW + 2 + driveHolderNameW + 2
 )
 
 // drivesBox renders the popup itself: a title, one line per drive, a detail
@@ -120,15 +128,21 @@ func (m model) drivesBox() string {
 		}
 	}
 	body = append(body, m.driveStatusLine(inner))
+	body = append(body, m.driveHolderLines(inner)...)
 
-	return popupBox(title, "enter open · u unmount · e eject · r refresh · esc close", body, inner)
+	hint := "enter open · u unmount · e eject · r refresh · esc close"
+	if m.driveStuck != nil {
+		hint = "F force " + m.driveStuckOp + " (data loss risk) · r recheck · esc close"
+	}
+	return popupBox(title, hint, body, inner)
 }
 
 // driveWindow returns the first visible drive index and how many fit, scrolling
 // to keep the cursor in view when there are more drives than room.
 func (m model) driveWindow() (top, n int) {
-	// Border, title, detail and hint lines all come off the terminal height.
-	avail := m.height - 7
+	// Border, title, detail and hint lines all come off the terminal height,
+	// as do the "what's holding it" lines when a busy unmount put them there.
+	avail := m.height - 7 - m.driveHolderRows()
 	if avail < drivesMinRow {
 		avail = drivesMinRow
 	}
@@ -185,6 +199,56 @@ func (m model) driveRow(i, inner int) string {
 		nameStyle = dirStyle // mounted drives read like directories you can enter
 	}
 	return hintStyle.Render(gutter) + nameStyle.Render(name) + metaStyle.Render(meta)
+}
+
+// driveHolderRows is how many lines driveHolderLines will produce, including
+// the "… and N more" line. driveWindow needs this before the rows are built so
+// the drive list can give up the space.
+func (m model) driveHolderRows() int {
+	if m.driveStuck == nil || len(m.driveHolders) == 0 {
+		return 0
+	}
+	if n := len(m.driveHolders); n > driveHolderMax {
+		return driveHolderMax + 1 // capped rows plus the "… and N more" line
+	}
+	return len(m.driveHolders)
+}
+
+// driveHolderLines lists the processes keeping a stuck drive busy, one per
+// line under the status line: PID, command, and the path it is holding. That
+// last column is what actually lets you go and close the right thing.
+func (m model) driveHolderLines(inner int) []string {
+	if m.driveHolderRows() == 0 {
+		return nil
+	}
+	hs := m.driveHolders
+	extra := 0
+	if len(hs) > driveHolderMax {
+		extra, hs = len(hs)-driveHolderMax, hs[:driveHolderMax]
+	}
+
+	pathW := inner - driveHolderFixedW
+	if pathW < 8 {
+		pathW = 8
+	}
+	out := make([]string, 0, len(hs)+1)
+	for _, h := range hs {
+		// Show the path relative to the mountpoint: the mountpoint prefix is
+		// the same on every row and eats the width that tells them apart.
+		rel := strings.TrimPrefix(h.what, m.driveStuck.mount)
+		if rel == "" {
+			rel = "/"
+		}
+		line := fmt.Sprintf("  %*d  %s  %s",
+			driveHolderPIDW, h.pid,
+			padRight(truncate(h.name, driveHolderNameW), driveHolderNameW),
+			padRight(truncate(rel, pathW), pathW))
+		out = append(out, warnStyle.Render(padRight(truncate(line, inner), inner)))
+	}
+	if extra > 0 {
+		out = append(out, hintStyle.Render(padRight(fmt.Sprintf("  … and %d more", extra), inner)))
+	}
+	return out
 }
 
 // driveStatusLine shows whatever matters most right now: a running action, the
@@ -373,7 +437,7 @@ func (p pane) renderRow(r row, cursor, marked bool) string {
 
 func (m model) footer() string {
 	switch m.mode {
-	case modeFilter, modeRename, modeOpenWith, modeArchive:
+	case modeFilter, modeRename, modeCreate, modeOpenWith, modeArchive:
 		return promptStyle.Render(m.ti.View())
 	case modeConfirm:
 		return warnStyle.Render(m.confirmMsg + "  (y/n)")
@@ -388,7 +452,7 @@ func (m model) footer() string {
 			return statusStyle.Render(m.status)
 		}
 	}
-	hint := "hjkl move · tab switch pane · V/space select · F5/F6 copy/move · / filter · f find · y/x/p yank/cut/paste · r rename · d delete · ? help · q quit"
+	hint := "hjkl move · tab switch pane · V/space select · F5/F6 copy/move · / filter · f find · y/x/p yank/cut/paste · a new · r rename · d delete · ? help · q quit"
 	return hintStyle.Render(truncate(hint, m.width))
 }
 
@@ -537,6 +601,7 @@ func helpBindings() []kb {
 		{"c", "copy path / name to clipboard"},
 		{"d", "delete (confirm)"},
 		{"r", "rename"},
+		{"a", "new file (or folder, end with /)"},
 		{"z", "zip / unzip"},
 		{"s / /", "filter (type; esc exits)"},
 		{"t", "sort name / newest"},
