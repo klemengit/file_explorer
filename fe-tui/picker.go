@@ -54,7 +54,24 @@ func (m *model) pickerApplyFilter() {
 	m.pickerClampScroll()
 }
 
+// pickerHeight is how many rows the picker shows at once. A floating picker
+// sizes itself to the unfiltered list (capped, and bounded by the terminal) so
+// the box keeps one height while you type; the full-screen one takes what's
+// left after its title, filter and hint lines.
 func (m *model) pickerHeight() int {
+	if m.pickerPopup() {
+		h := len(m.pickerAll)
+		if h > popupMaxRows {
+			h = popupMaxRows
+		}
+		if lim := m.height - 6; h > lim { // borders, title, filter, hint
+			h = lim
+		}
+		if h < 1 {
+			h = 1
+		}
+		return h
+	}
 	h := m.height - 3 // title + filter + hint
 	if h < 1 {
 		h = 1

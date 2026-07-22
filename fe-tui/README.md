@@ -85,8 +85,22 @@ very narrow terminals.
 | `?`                | toggle help                              |
 | `q` / `ctrl-c`     | quit                                     |
 
-In the filter and picker screens: type to narrow, `↑`/`↓` (or `ctrl-j`/`ctrl-k`)
+In the filter and picker menus: type to narrow, `↑`/`↓` (or `ctrl-j`/`ctrl-k`)
 to move, `enter` to select, `esc` to cancel.
+
+### Floating windows
+
+The menus are small windows that float in the middle of the screen with both
+panes still visible around them, rather than pages that take the screen over:
+`?` (help), `O` (open with), `c` (copy to clipboard), `b` (bookmarks) and `M`
+(drives). Each one sizes itself to its contents and to your terminal.
+
+The one exception is `f` (deep find), which stays full-screen: it lists every
+file under the current directory, so it wants all the room it can get.
+
+The help window lays the bindings out in two columns when the terminal is wide
+enough and falls back to one column when it isn't; if the list still doesn't
+fit, `j`/`k` (and `ctrl-d`/`ctrl-u`, `g`/`G`) scroll it.
 
 ### Multi-selection (`V`, `space`)
 

@@ -90,16 +90,8 @@ func (m model) View() string {
 }
 
 // drivesView floats the drives window in the middle of the two panes, which
-// stay visible (dimmed only by being behind it) underneath.
-func (m model) drivesView() string {
-	box := m.drivesBox()
-	x := (m.width - lipgloss.Width(box)) / 2
-	y := (m.height - lipgloss.Height(box)) / 2
-	if y < 0 {
-		y = 0
-	}
-	return overlayBox(m.dualView(), box, x, y, m.width)
-}
+// stay visible around it.
+func (m model) drivesView() string { return m.floatOver(m.drivesBox()) }
 
 const (
 	drivesWidth  = 62 // preferred inner width of the drives popup
@@ -112,32 +104,24 @@ const (
 // drivesBox renders the popup itself: a title, one line per drive, a detail
 // line for the highlighted drive, and the key hints.
 func (m model) drivesBox() string {
-	inner := drivesWidth
-	if lim := m.width - 6; inner > lim {
-		inner = lim
-	}
-	if inner < 28 {
-		inner = 28
-	}
+	inner := m.popupInner(drivesWidth)
 
 	title := "drives"
 	if n := len(m.drives); n > 0 {
 		title = fmt.Sprintf("drives (%d)", n)
 	}
-	lines := []string{titleStyle.Render(padRight(" "+title, inner))}
+	var body []string
 	if len(m.drives) == 0 {
-		lines = append(lines, hintStyle.Render(padRight("  no external drives found", inner)))
+		body = append(body, hintStyle.Render("  no external drives found"))
 	} else {
 		top, n := m.driveWindow()
 		for i := top; i < top+n; i++ {
-			lines = append(lines, m.driveRow(i, inner))
+			body = append(body, m.driveRow(i, inner))
 		}
 	}
-	lines = append(lines, m.driveStatusLine(inner))
-	hint := " enter open · u unmount · e eject · r refresh · esc close"
-	lines = append(lines, hintStyle.Render(padRight(truncate(hint, inner), inner)))
+	body = append(body, m.driveStatusLine(inner))
 
-	return drivesBorder.Render(strings.Join(lines, "\n"))
+	return popupBox(title, "enter open · u unmount · e eject · r refresh · esc close", body, inner)
 }
 
 // driveWindow returns the first visible drive index and how many fit, scrolling
@@ -408,7 +392,88 @@ func (m model) footer() string {
 	return hintStyle.Render(truncate(hint, m.width))
 }
 
+// pickerView draws the picker either as a floating window or, for deep find —
+// whose result list is unbounded and full of long paths — as a full screen.
 func (m model) pickerView() string {
+	if m.pickerPopup() {
+		return m.floatOver(m.pickerBox())
+	}
+	return m.pickerFullView()
+}
+
+// pickerPopup reports whether this picker is small enough to float.
+func (m model) pickerPopup() bool { return m.pickerKind != pickFind }
+
+// pickerBox renders a picker as a floating window: title, filter input, the
+// visible rows, and the key hints.
+func (m model) pickerBox() string {
+	inner := m.popupInner(m.pickerNaturalW())
+
+	// The input is part of the box, so it scrolls within the box's width.
+	// It renders as leading space + prompt ("/ ") + Width + a cursor cell.
+	m.ti.Width = inner - 4
+	body := []string{promptStyle.Render(" " + m.ti.View())}
+
+	h := m.pickerHeight()
+	end := m.pickerTop + h
+	if end > len(m.pickerRows) {
+		end = len(m.pickerRows)
+	}
+	for i := m.pickerTop; i < end; i++ {
+		body = append(body, m.pickerRow(i, inner))
+	}
+	if len(m.pickerRows) == 0 {
+		body = append(body, hintStyle.Render("   no matches"))
+	}
+	// Keep the box a constant height while filtering, so it doesn't jump about
+	// under the cursor as matches come and go.
+	for len(body) < h+1 {
+		body = append(body, "")
+	}
+
+	return popupBox(m.pickerTitle, m.pickerHint(), body, inner)
+}
+
+// pickerRow draws one row of a floating picker.
+func (m model) pickerRow(i, inner int) string {
+	item := abbrevHome(m.pickerAll[m.pickerRows[i]])
+	avail := inner - 3
+	text := truncate(item, avail)
+	if i == m.pickerCursor {
+		st := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colFg)).
+			Background(lipgloss.Color(colSelBg)).
+			Bold(true)
+		return st.Render(" ▶ " + padRight(text, avail))
+	}
+	return "   " + fileStyle.Render(text)
+}
+
+// pickerNaturalW is the width the picker would like: enough for its longest
+// item, its title and its hint, before the terminal has its say.
+func (m model) pickerNaturalW() int {
+	w := utf8.RuneCountInString(m.pickerHint()) + 2
+	if n := utf8.RuneCountInString(m.pickerTitle) + 2; n > w {
+		w = n
+	}
+	for _, it := range m.pickerAll {
+		if n := utf8.RuneCountInString(abbrevHome(it)) + 4; n > w {
+			w = n
+		}
+	}
+	return w
+}
+
+func (m model) pickerHint() string {
+	hint := "type to filter · ↑↓ move · enter select · esc cancel"
+	if m.pickerKind == pickBookmarks {
+		hint += " · ctrl-d delete"
+	}
+	return hint
+}
+
+// pickerFullView is the full-screen picker used for deep find.
+func (m model) pickerFullView() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(truncate("  "+m.pickerTitle, m.width)))
 	b.WriteString("\n")
@@ -442,17 +507,15 @@ func (m model) pickerView() string {
 		b.WriteString("\n")
 	}
 
-	hint := "  type to filter · ↑↓ move · enter select · esc cancel"
-	if m.pickerKind == pickBookmarks {
-		hint += " · ctrl-d delete"
-	}
-	b.WriteString(hintStyle.Render(truncate(hint, m.width)))
+	b.WriteString(hintStyle.Render(truncate("  "+m.pickerHint(), m.width)))
 	return b.String()
 }
 
-func (m model) helpView() string {
-	type kb struct{ key, desc string }
-	binds := []kb{
+type kb struct{ key, desc string }
+
+// helpBindings is the keybinding list shown by ?.
+func helpBindings() []kb {
+	return []kb{
 		{"tab", "switch active pane"},
 		{"F5 / F6", "copy / move to other pane"},
 		{"h / ←", "parent directory"},
@@ -487,17 +550,100 @@ func (m model) helpView() string {
 		{"?", "toggle this help"},
 		{"q / ctrl-c", "quit"},
 	}
+}
 
-	var b strings.Builder
-	b.WriteString(titleStyle.Render("  fe — keybindings"))
-	b.WriteString("\n\n")
+const (
+	helpKeyW    = 16 // widest key label ("ctrl-d / ctrl-u") plus a space
+	helpMinDesc = 24 // narrower descriptions than this aren't worth a column
+)
+
+// helpLayout works out how the bindings are arranged for the current terminal:
+// two columns when they fit at a readable width, one otherwise, plus how many
+// rows exist and how many of them are on screen.
+func (m model) helpLayout() (cols, colW, inner, rows, visible int) {
+	binds := helpBindings()
+	descW := 0
 	for _, k := range binds {
-		b.WriteString("  ")
-		b.WriteString(helpKey.Render(padRight(k.key, 18)))
-		b.WriteString(helpDesc.Render(k.desc))
-		b.WriteString("\n")
+		if n := utf8.RuneCountInString(k.desc); n > descW {
+			descW = n
+		}
 	}
-	b.WriteString("\n")
-	b.WriteString(hintStyle.Render("  press ? or esc to close"))
-	return b.String()
+	full := helpKeyW + 1 + descW
+
+	cols = 1
+	if m.width-popupPad >= 2*(helpKeyW+1+helpMinDesc)+4 {
+		cols = 2
+	}
+	inner = m.popupInner(cols*full + (cols-1)*2 + 2)
+	// Share out whatever width we actually got between the columns.
+	colW = (inner - 2 - (cols-1)*2) / cols
+	if colW > full {
+		colW = full
+	}
+
+	rows = (len(binds) + cols - 1) / cols
+	visible = m.height - 5 // borders, title, hint, and a line of slack
+	if visible > rows {
+		visible = rows
+	}
+	if visible < 1 {
+		visible = 1
+	}
+	return cols, colW, inner, rows, visible
+}
+
+// helpTopMax is the furthest the help list can be scrolled.
+func (m model) helpTopMax() int {
+	_, _, _, rows, visible := m.helpLayout()
+	if top := rows - visible; top > 0 {
+		return top
+	}
+	return 0
+}
+
+func (m model) helpView() string { return m.floatOver(m.helpBox()) }
+
+// helpBox lays the bindings out in one or two key/description columns, filled
+// column-major, scrolled to m.helpTop.
+func (m model) helpBox() string {
+	binds := helpBindings()
+	cols, colW, inner, rows, visible := m.helpLayout()
+	descW := colW - helpKeyW - 1
+	if descW < 1 {
+		descW = 1
+	}
+
+	top := m.helpTop
+	if max := rows - visible; top > max {
+		top = max
+	}
+	if top < 0 {
+		top = 0
+	}
+
+	body := make([]string, 0, visible)
+	for r := top; r < top+visible; r++ {
+		var line strings.Builder
+		line.WriteString(" ")
+		for c := 0; c < cols; c++ {
+			if c > 0 {
+				line.WriteString("  ")
+			}
+			i := c*rows + r // column-major: the list reads down, then across
+			if i >= len(binds) {
+				line.WriteString(strings.Repeat(" ", colW))
+				continue
+			}
+			line.WriteString(helpKey.Render(padRight(truncate(binds[i].key, helpKeyW), helpKeyW)))
+			line.WriteString(" ")
+			line.WriteString(helpDesc.Render(padRight(truncate(binds[i].desc, descW), descW)))
+		}
+		body = append(body, line.String())
+	}
+
+	hint := "press ? or esc to close"
+	if rows > visible {
+		hint = "j/k scroll · " + hint
+	}
+	return popupBox("fe — keybindings", hint, body, inner)
 }

@@ -104,6 +104,7 @@ type model struct {
 	status   string
 	statusLv int
 	showHelp bool
+	helpTop  int // first visible row of the help window, when it scrolls
 	pendingG bool
 
 	pickerKind   pickerKind
@@ -481,10 +482,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// The help window is modal: it scrolls with the usual motions and swallows
+	// everything else.
 	if m.showHelp {
 		switch key {
 		case "?", "esc", "q":
 			m.showHelp = false
+		case "j", "down":
+			m.helpTop++
+		case "k", "up":
+			m.helpTop--
+		case "ctrl+d", "pgdown":
+			m.helpTop += 5
+		case "ctrl+u", "pgup":
+			m.helpTop -= 5
+		case "g", "home":
+			m.helpTop = 0
+		case "G", "end":
+			m.helpTop = m.helpTopMax()
+		}
+		if max := m.helpTopMax(); m.helpTop > max {
+			m.helpTop = max
+		}
+		if m.helpTop < 0 {
+			m.helpTop = 0
 		}
 		return m, nil
 	}
@@ -647,6 +668,7 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.reload()
 	case "?":
 		m.showHelp = true
+		m.helpTop = 0
 	}
 	return m, nil
 }

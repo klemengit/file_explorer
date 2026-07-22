@@ -36,8 +36,8 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(colComment))
 
-	// drivesBorder frames the floating drives window (M).
-	drivesBorder = lipgloss.NewStyle().
+	// popupBorder frames every floating window: drives, menus and help.
+	popupBorder = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(colBlue))
 
