@@ -58,6 +58,7 @@ very narrow terminals.
 | `k` / `↑`          | up                                       |
 | `l` / `→` / `enter`| enter directory / open file              |
 | `gg`               | go to top                                |
+| `g` + key          | go to a directory — `gd` Downloads, `gh` home, … |
 | `G`                | go to bottom                             |
 | `ctrl-d` / `ctrl-u`| half page down / up                      |
 | `V`                | visual select (`j`/`k` extend, `V` keeps)|
@@ -88,6 +89,67 @@ very narrow terminals.
 
 In the filter and picker menus: type to narrow, `↑`/`↓` (or `ctrl-j`/`ctrl-k`)
 to move, `enter` to select, `esc` to cancel.
+
+### Go-to chords (`g`)
+
+`g` waits for a second key and jumps the active pane straight there — `gd` for
+Downloads, `gh` for home. It's the same chord `gg` already used, extended: the
+key after `g` is always taken as part of the chord, so `gd` can never be read as
+`d` (delete).
+
+While the `g` is pending the footer lists what the next key will do, so nothing
+has to be memorised; `esc` (or any unbound key) calls it off. The same list is
+in the `?` help.
+
+| Chord | Goes to |
+|-------|---------|
+| `gg`  | the top of the list (as before) |
+| `gh`  | your home directory |
+| `gd`  | Downloads |
+| `gD`  | Documents |
+| `gk`  | Desktop |
+| `gp`  | Pictures |
+| `gm`  | Music |
+| `gv`  | Videos |
+| `gc`  | `~/.config` |
+| `gt`  | `/tmp` |
+| `gr`  | `/` |
+| `g.`  | the directory `fe` was started in |
+| `go`  | whatever the **o**ther pane is showing |
+
+The user directories come from your desktop's own XDG settings rather than from
+hardcoded English names, so on a localized system `gd` goes to `~/Prenosi` and
+says so. **A chord whose directory doesn't exist is dropped**, and so is one
+that would only repeat an earlier chord — a machine with no `~/Music` simply has
+no `gm`, and one whose Desktop is configured as the home directory has no `gk`.
+Press `?` to see what your machine ended up with.
+
+#### Your own chords
+
+Put them in `${XDG_CONFIG_HOME:-~/.config}/fe/goto`, one per line — a
+single-character key, then the directory:
+
+```
+# key  where it goes
+w      ~/work/current
+n      ~/notes
+d  =   /mnt/big/downloads     # replaces the built-in gd
+```
+
+`~` is expanded, `#` starts a comment, and an `=` between the two is optional.
+A key that already exists is replaced where it stands; anything else is added
+after the built-ins. `gg` is the one chord that can't be rebound.
+
+### Where the panes start
+
+The **left** pane always opens in the directory `fe` was invoked from (or the
+one given on the command line). The **right** pane picks up wherever it was when
+you last quit, so the place you were copying to is still there next time.
+
+That one path is written on exit to
+`${XDG_STATE_HOME:-~/.local/state}/fe/right-pane`. If it has since been deleted
+— an unplugged drive, say — the right pane just opens alongside the left one.
+Delete the file to forget it.
 
 ### Floating windows
 

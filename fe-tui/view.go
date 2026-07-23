@@ -442,6 +442,11 @@ func (m model) footer() string {
 	case modeConfirm:
 		return warnStyle.Render(m.confirmMsg + "  (y/n)")
 	}
+	// A pending g shows what the next key can do, so the chords don't have to
+	// be memorised.
+	if m.pendingG {
+		return promptStyle.Render(truncate(m.gotoHint(m.width), m.width))
+	}
 	if m.status != "" {
 		switch m.statusLv {
 		case lvlWarn:
@@ -577,9 +582,10 @@ func (m model) pickerFullView() string {
 
 type kb struct{ key, desc string }
 
-// helpBindings is the keybinding list shown by ?.
-func helpBindings() []kb {
-	return []kb{
+// helpBindings is the keybinding list shown by ?. The goto chords are appended
+// from the model, since which of them exist depends on the machine.
+func (m model) helpBindings() []kb {
+	binds := []kb{
 		{"tab", "switch active pane"},
 		{"F5 / F6", "copy / move to other pane"},
 		{"h / ←", "parent directory"},
@@ -615,6 +621,13 @@ func helpBindings() []kb {
 		{"?", "toggle this help"},
 		{"q / ctrl-c", "quit"},
 	}
+	for _, t := range m.gotos {
+		if t.key == "g" {
+			continue // gg is already listed above
+		}
+		binds = append(binds, kb{"g " + t.key, "go to " + t.label})
+	}
+	return binds
 }
 
 const (
@@ -626,7 +639,7 @@ const (
 // two columns when they fit at a readable width, one otherwise, plus how many
 // rows exist and how many of them are on screen.
 func (m model) helpLayout() (cols, colW, inner, rows, visible int) {
-	binds := helpBindings()
+	binds := m.helpBindings()
 	descW := 0
 	for _, k := range binds {
 		if n := utf8.RuneCountInString(k.desc); n > descW {
@@ -671,7 +684,7 @@ func (m model) helpView() string { return m.floatOver(m.helpBox()) }
 // helpBox lays the bindings out in one or two key/description columns, filled
 // column-major, scrolled to m.helpTop.
 func (m model) helpBox() string {
-	binds := helpBindings()
+	binds := m.helpBindings()
 	cols, colW, inner, rows, visible := m.helpLayout()
 	descW := colW - helpKeyW - 1
 	if descW < 1 {

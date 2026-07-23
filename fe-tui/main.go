@@ -108,6 +108,11 @@ type model struct {
 	helpTop  int // first visible row of the help window, when it scrolls
 	pendingG bool
 
+	// The g chord and its destinations. startDir is where fe was launched,
+	// which the left pane opens on and `g .` returns to.
+	startDir string
+	gotos    []gotoTarget
+
 	pickerKind   pickerKind
 	pickerTitle  string
 	pickerAll    []string
@@ -139,7 +144,7 @@ type model struct {
 func newModel(dir string) model {
 	ti := textinput.New()
 	ti.Prompt = "/ "
-	m := model{ti: ti}
+	m := model{ti: ti, startDir: dir, gotos: gotoTargets()}
 	for i := range m.panes {
 		m.panes[i] = pane{
 			dir:      dir,
@@ -467,6 +472,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
+			m.saveSession()
 			return m, tea.Quit
 		}
 		switch m.mode {
@@ -518,16 +524,21 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// gg chord: a pending 'g' followed by another 'g' jumps to the top.
-	if key != "g" {
-		m.pendingG = false
-	}
 	m.status = "" // any command clears a stale status line
+
+	// The g chord: whatever follows a pending g is a goto — the top of the
+	// list (gg) or one of the destinations in m.gotos. The second key is always
+	// consumed, so `gd` goes to Downloads and never deletes anything.
+	if m.pendingG {
+		m.pendingG = false
+		return m.gotoChord(key)
+	}
 
 	p := m.cur()
 
 	switch key {
 	case "q":
+		m.saveSession()
 		return m, tea.Quit
 	case "tab":
 		// Switch the active pane between left and right.
@@ -570,12 +581,8 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "pgup":
 		p.move(-p.listHeight())
 	case "g":
-		if m.pendingG {
-			p.cursor, p.top = 0, 0
-			m.pendingG = false
-		} else {
-			m.pendingG = true
-		}
+		// Arm the chord; the next key decides where we go.
+		m.pendingG = true
 	case "G":
 		p.cursor = len(p.rows) - 1
 		p.clampScroll()
@@ -1106,7 +1113,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(newModel(abs), tea.WithAltScreen())
+	// The left pane opens where fe was invoked; the right one picks up where
+	// it was left last time, falling back to the same directory.
+	m := newModel(abs)
+	if last := loadRightPane(); last != "" && last != abs {
+		if err := m.panes[1].enterDir(last, ""); err != nil {
+			m.panes[1].enterDir(abs, "")
+		}
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "fe:", err)
 		os.Exit(1)

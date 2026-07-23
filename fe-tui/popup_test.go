@@ -161,7 +161,7 @@ func TestHelpLayoutColumns(t *testing.T) {
 	if cols != 2 {
 		t.Errorf("wide terminal: cols = %d, want 2", cols)
 	}
-	want := (len(helpBindings()) + 1) / 2
+	want := (len(wide.helpBindings()) + 1) / 2
 	if rows != want {
 		t.Errorf("rows = %d, want %d", rows, want)
 	}

@@ -14,6 +14,8 @@ different keybindings.
 | Install | build one binary (needs Go) | source a shell function |
 | Two panes side by side | yes | no |
 | Multi-key bindings (`gg`, `G`) | yes | no — `fzf` owns the keys |
+| Go-to chords (`gd` → Downloads) | yes — configurable | no |
+| Remembers the right pane between runs | yes | no |
 | Multi-selection (`V`, `space`) | yes | no |
 | Create files / folders (`a`) | yes | no |
 | External drives window (`M`) | yes — mount / unmount / eject, and it names whatever is keeping a busy drive from unmounting | no |
@@ -150,8 +152,9 @@ open in `nvim`.
 The `t`, `.` and `D` toggles are sticky for the session and combine freely (e.g.
 hide dotfiles *and* sort by modified time). Dotfiles are hidden by default.
 
-> Several of these differ in the Go version — there `g` is half of `gg`, `E`
-> opens the file manager, and `n` cycles the current directory's sort order.
+> Several of these differ in the Go version — there `g` starts a chord (`gg`
+> for the top of the list, `gd` for Downloads, and so on), `E` opens the file
+> manager, and `n` cycles the current directory's sort order.
 > See [`fe-tui/README.md`](fe-tui/README.md) for its table.
 
 #### Search mode (after pressing `s` or `/`)
