@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // gotoTarget is one `g`-chord destination: press g, then key, and the active
@@ -238,22 +237,20 @@ func (m model) gotoFor(key string) (gotoTarget, bool) {
 	return gotoTarget{}, false
 }
 
-// gotoHint is the one-line reminder shown in the footer while a g is pending.
-// Where the terminal is wide enough every chord is named; where it isn't, the
-// bare keys are listed instead, which at least says what is bound (? has the
-// full list either way).
-func (m model) gotoHint(width int) string {
-	named := make([]string, 0, len(m.gotos)+1)
-	keys := make([]string, 0, len(m.gotos))
+// gotoEntries presents this machine's destinations as chord continuations, so
+// the footer hint and the which-key window can describe goto without knowing
+// anything about directories.
+func gotoEntries(m model) []chordEntry {
+	out := make([]chordEntry, 0, len(m.gotos))
 	for _, t := range m.gotos {
-		named = append(named, t.key+" "+t.label)
-		keys = append(keys, t.key)
+		out = append(out, chordEntry{key: t.key, label: t.label})
 	}
-	full := "goto: " + strings.Join(append(named, "esc cancel"), " · ")
-	if width <= 0 || ansi.StringWidth(full) <= width {
-		return full
-	}
-	return "goto: " + strings.Join(keys, " ") + " · esc cancel"
+	return out
+}
+
+// gotoHint is the one-line reminder shown in the footer while a g is pending.
+func (m model) gotoHint(width int) string {
+	return chordHint("goto", gotoEntries(m), width)
 }
 
 // gotoChord handles the key pressed after g. It always consumes that key, so

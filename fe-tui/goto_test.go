@@ -178,11 +178,11 @@ func TestGotoChordJumps(t *testing.T) {
 	m, _, dest := gotoModel(t)
 
 	m = press(t, m, keyRune('g'))
-	if !m.pendingG {
-		t.Fatal("g should arm the chord")
+	if m.pending != "g" {
+		t.Fatalf("g should arm the chord, pending = %q", m.pending)
 	}
 	m = press(t, m, keyRune('d'))
-	if m.pendingG {
+	if m.pending != "" {
 		t.Error("the second key should disarm the chord")
 	}
 	if got := m.cur().dir; got != dest {
@@ -246,7 +246,7 @@ func TestGotoStartDirAndOtherPane(t *testing.T) {
 func TestGotoChordEscCancels(t *testing.T) {
 	m, dir, _ := gotoModel(t)
 	m = press(t, m, keyRune('g'), tea.KeyMsg{Type: tea.KeyEsc})
-	if m.pendingG {
+	if m.pending != "" {
 		t.Error("esc should disarm the chord")
 	}
 	if m.cur().dir != dir {
@@ -300,12 +300,14 @@ func TestGotoChordsAppearInHelp(t *testing.T) {
 		keys = append(keys, b.key)
 	}
 	joined := strings.Join(keys, ",")
-	for _, want := range []string{"g d", "g .", "g o"} {
+	for _, want := range []string{"g g", "g d", "g .", "g o"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("help is missing %q; has %s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "g g") {
-		t.Error("gg is already in the static list; it should not be repeated")
+	// Every chord comes from the same list, so none of them can be forgotten
+	// and none listed twice.
+	if n := strings.Count(joined, "g d"); n != 1 {
+		t.Errorf("g d listed %d times, want once: %s", n, joined)
 	}
 }

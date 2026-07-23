@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,6 +23,7 @@ const (
 	modeConfirm
 	modePicker
 	modeDrives
+	modePalette
 )
 
 type confirmKind int
@@ -110,9 +110,16 @@ type model struct {
 	statusLv int
 	showHelp bool
 	helpTop  int // first visible row of the help window, when it scrolls
-	pendingG bool
 
-	// The g chord and its destinations. startDir is where fe was launched,
+	// The chord waiting for its second key ("g"), empty when none is. whichKey
+	// says its window is up; chordGen dates the window ticks, so one left over
+	// from a chord that has already been answered can be told apart from the
+	// tick belonging to the chord pending now.
+	pending  string
+	whichKey bool
+	chordGen int
+
+	// The goto chord's destinations. startDir is where fe was launched,
 	// which the left pane opens on and `g .` returns to.
 	startDir string
 	gotos    []gotoTarget
@@ -123,6 +130,12 @@ type model struct {
 	pickerRows   []int
 	pickerCursor int
 	pickerTop    int
+
+	// The command palette (:). paletteRows holds the indices into commandSet
+	// that match what has been typed.
+	paletteRows   []int
+	paletteCursor int
+	paletteTop    int
 
 	openWith        []app
 	openWithTargets []string
@@ -474,6 +487,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case driveResultMsg:
 		return m.applyDriveResult(msg)
 
+	case whichKeyMsg:
+		// Only the chord that scheduled this tick may open a window with it.
+		if msg.gen == m.chordGen && m.pending != "" {
+			m.whichKey = true
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
 			m.saveSession()
@@ -492,6 +512,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updatePicker(msg)
 		case modeDrives:
 			return m.updateDrives(msg)
+		case modePalette:
+			return m.updatePalette(msg)
 		}
 	}
 	return m, nil
@@ -530,168 +552,25 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	m.status = "" // any command clears a stale status line
 
-	// The g chord: whatever follows a pending g is a goto — the top of the
-	// list (gg) or one of the destinations in m.gotos. The second key is always
-	// consumed, so `gd` goes to Downloads and never deletes anything.
-	if m.pendingG {
-		m.pendingG = false
-		return m.gotoChord(key)
+	// A pending chord claims the next key whatever it is, so `gd` goes to
+	// Downloads and never deletes anything.
+	if m.pending != "" {
+		c, ok := m.pendingChord()
+		m.endChord()
+		if !ok {
+			return m, nil
+		}
+		return c.run(m, key)
 	}
 
-	p := m.cur()
+	// Chord prefixes act only by what follows them, so they come before the
+	// commands that act on their own.
+	if c, ok := chordFor(key); ok {
+		return m, m.startChord(c.key)
+	}
 
-	switch key {
-	case "q":
-		m.saveSession()
-		return m, tea.Quit
-	case "tab":
-		// Switch the active pane between left and right.
-		m.active = 1 - m.active
-	case "V":
-		// Vim-style linewise visual selection: V starts it at the cursor, j/k
-		// extend it, and a second V commits the range to the selection.
-		if p.visual {
-			p.commitVisual()
-			m.setStatus(lvlInfo, "%d selected", len(p.selectedPaths()))
-		} else {
-			p.visual = true
-			p.anchor = p.cursor
-		}
-	case " ", "space":
-		// Mark the row and step down, so tapping space runs down a block.
-		p.toggleMark()
-		p.move(1)
-	case "esc":
-		// First esc drops a live visual range, a second clears the marks.
-		if p.visual {
-			p.visual = false
-		} else if len(p.marked) > 0 {
-			p.clearSelection()
-		}
-	case "f5":
-		m.transfer(false)
-	case "f6":
-		m.transfer(true)
-	case "j", "down":
-		p.move(1)
-	case "k", "up":
-		p.move(-1)
-	case "ctrl+d":
-		p.move(p.listHeight() / 2)
-	case "ctrl+u":
-		p.move(-p.listHeight() / 2)
-	case "pgdown":
-		p.move(p.listHeight())
-	case "pgup":
-		p.move(-p.listHeight())
-	case "g":
-		// Arm the chord; the next key decides where we go.
-		m.pendingG = true
-	case "G":
-		p.cursor = len(p.rows) - 1
-		p.clampScroll()
-	case "h", "left":
-		m.goParent()
-	case "l", "right", "enter":
-		return m.openSelected()
-	case "E":
-		if err := openDetached("xdg-open", p.dir); err != nil {
-			m.setStatus(lvlErr, "xdg-open: %v", err)
-		}
-	case "O":
-		if targets := p.targets(); len(targets) > 0 {
-			return m.openOpenWith(targets)
-		}
-	case "e":
-		if targets := p.targets(); len(targets) > 0 {
-			c := exec.Command("nvim", targets...)
-			return m, tea.ExecProcess(c, func(err error) tea.Msg { return editFinishedMsg{err} })
-		}
-	case "y":
-		if targets := p.targets(); len(targets) > 0 {
-			m.clip = &clipEntry{paths: targets, cut: false}
-			m.setStatus(lvlInfo, "Yanked: %s", describePaths(targets))
-			p.clearSelection()
-		}
-	case "x":
-		if targets := p.targets(); len(targets) > 0 {
-			m.clip = &clipEntry{paths: targets, cut: true}
-			m.setStatus(lvlWarn, "Cut: %s", describePaths(targets))
-			p.clearSelection()
-		}
-	case "p":
-		m.paste()
-	case "c":
-		if targets := p.targets(); len(targets) > 0 {
-			return m.openCopyMenu(targets)
-		}
-	case "d":
-		if targets := p.targets(); len(targets) > 0 {
-			m.confirmKind = confirmDelete
-			m.confirmPaths = targets
-			m.confirmMsg = fmt.Sprintf("Delete %s?", describeQuoted(targets))
-			m.mode = modeConfirm
-		}
-	case "r":
-		if target, ok := p.selectedTarget(); ok {
-			m.startPrompt(modeRename, "renaming "+describeQuoted([]string{target}),
-				"new name…", filepath.Base(target))
-		}
-	case "a":
-		m.startPrompt(modeCreate, "in "+abbrevHome(p.dir),
-			"name, end with / for a folder…", "")
-	case "z":
-		m.zip()
-	case "s", "/":
-		m.mode = modeFilter
-		m.ti.SetValue("")
-		m.ti.Prompt = "/ "
-		m.applyView()
-		return m, m.ti.Focus()
-	case "f":
-		return m.openPicker(pickFind)
-	case "n":
-		// Cycle: newest first → oldest first → original (name) order.
-		switch p.sortMode {
-		case sortName:
-			p.sortMode = sortTimeDesc
-		case sortTimeDesc:
-			p.sortMode = sortTimeAsc
-		default:
-			p.sortMode = sortName
-		}
-		p.cursor, p.top = 0, 0
-		m.reload()
-	case "m":
-		added, err := addBookmark(p.dir)
-		if err != nil {
-			m.setStatus(lvlErr, "bookmark: %v", err)
-		} else if added {
-			m.setStatus(lvlInfo, "Bookmarked: %s", p.dir)
-		} else {
-			m.setStatus(lvlInfo, "Already bookmarked")
-		}
-	case "b":
-		return m.openPicker(pickBookmarks)
-	case "M":
-		return m.openDrives()
-	case "t":
-		// Toggle between name order and newest-first.
-		if p.sortMode == sortName {
-			p.sortMode = sortTimeDesc
-		} else {
-			p.sortMode = sortName
-		}
-		m.reload()
-	case ".":
-		p.showDots = !p.showDots
-		m.reload()
-	case "D":
-		p.showDirs = !p.showDirs
-		m.reload()
-	case "?":
-		m.showHelp = true
-		m.helpTop = 0
+	if c, ok := commandFor(key); ok && c.available(m) {
+		return c.run(m)
 	}
 	return m, nil
 }

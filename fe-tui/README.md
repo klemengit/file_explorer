@@ -84,12 +84,46 @@ very narrow terminals.
 | `m`                | bookmark current directory               |
 | `b`                | jump to a bookmark (`ctrl-d` deletes)    |
 | `M`                | external drives (mount / unmount / eject)|
+| `:`                | command palette — search every command    |
 | `?`                | toggle help                              |
 | `q` / `ctrl-c`     | quit                                     |
 
 In the filter and picker menus: type to narrow, `↑`/`↓` (or `ctrl-j`/`ctrl-k`)
 to move, `enter` to select, `esc` to cancel. Both are floating windows — see
 [Prompts](#prompts--r-a-z-d).
+
+Every one of these commands lives in a single list in the source, which the key
+dispatch, the `?` help and the `:` palette all read. There is no second copy to
+keep in step, so a command cannot be bound but undocumented.
+
+### The command palette (`:`)
+
+`:` opens a floating window listing every command with the key that runs it.
+Type to narrow it, `↑`/`↓` to move, `enter` to run, `esc` to close.
+
+```
+╭────────────────────────────────────────╮
+│ commands                               │
+│ › zip                                  │
+│ ▶ zip / unzip                         z│
+│ ↑↓ move · enter run · esc close        │
+╰────────────────────────────────────────╯
+```
+
+It is for **finding** commands, not for running them quickly — every command in
+it is already one keypress away, and the palette shows you which keypress, so
+using it teaches you not to need it. That is also why it matches on words the
+row doesn't show: `mkdir` finds "new file", `archive` finds "zip / unzip".
+
+The plain motions (`j`, `k`, `ctrl-d`, `space`, …) are left out — a fuzzy list
+is a slow way to press `j` — but they are still in `?`.
+
+A command that can't do anything right now (`paste` with nothing yanked) stays
+in the list, greyed out, so the palette answers "can `fe` do this at all?" as
+well as "do it". Picking one says why instead of doing nothing.
+
+It is **not** a command line: there is nothing to type arguments into, because
+the prompt windows already collect those.
 
 ### Go-to chords (`g`)
 
@@ -99,8 +133,9 @@ key after `g` is always taken as part of the chord, so `gd` can never be read as
 `d` (delete).
 
 While the `g` is pending the footer lists what the next key will do, so nothing
-has to be memorised; `esc` (or any unbound key) calls it off. The same list is
-in the `?` help.
+has to be memorised; `esc` (or any unbound key) calls it off. Hesitate about
+0.4 s and the full list floats up as a window — see
+[Which-key](#which-key-windows). The same list is in the `?` help.
 
 | Chord | Goes to |
 |-------|---------|
@@ -156,11 +191,39 @@ Delete the file to forget it.
 
 The menus are small windows that float in the middle of the screen with both
 panes still visible around them, rather than pages that take the screen over:
-`?` (help), `O` (open with), `c` (copy to clipboard), `b` (bookmarks) and `M`
-(drives). Each one sizes itself to its contents and to your terminal.
+`?` (help), `:` (command palette), `O` (open with), `c` (copy to clipboard),
+`b` (bookmarks) and `M` (drives). Each one sizes itself to its contents and to
+your terminal.
 
 The one exception is `f` (deep find), which stays full-screen: it lists every
 file under the current directory, so it wants all the room it can get.
+
+#### Which-key windows
+
+A chord — a key that waits for a second key, of which `g` is currently the only
+one — floats up a window naming everything the next key can do:
+
+```
+╭──────────────────────────────╮
+│ g — goto                     │
+│ g  top         v  Videos     │
+│ h  ~           c  .config    │
+│ d  Downloads   t  tmp        │
+│ D  Documents   r  /          │
+│ p  Pictures    .  start dir  │
+│ m  Music       o  other pane │
+│ esc cancel                   │
+╰──────────────────────────────╯
+```
+
+**It waits about 0.4 s first.** Type `gd` at speed and no window ever appears —
+you already knew the key. Pause, and the window arrives to tell you. A window
+that opened instantly would flash on every chord you know by heart, which is
+the reason vim's which-key makes the same bargain.
+
+Nothing in this is specific to `g`: a new chord prefix is one entry in the
+source's chord list, and its hint line, its window and its `?` entries all come
+out of that entry.
 
 #### Prompts (`/`, `r`, `a`, `z`, `d`)
 

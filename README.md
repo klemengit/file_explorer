@@ -15,6 +15,8 @@ different keybindings.
 | Two panes side by side | yes | no |
 | Multi-key bindings (`gg`, `G`) | yes | no — `fzf` owns the keys |
 | Go-to chords (`gd` → Downloads) | yes — configurable | no |
+| Which-key window for pending chords | yes — after a 0.4 s pause | no |
+| Command palette (`:`) over every command | yes | no |
 | Remembers the right pane between runs | yes | no |
 | Prompts as floating windows (`:`-style) | yes | no — `gum` takes the screen |
 | Multi-selection (`V`, `space`) | yes | no |

@@ -93,8 +93,14 @@ func (m model) View() string {
 	if m.mode == modeDrives {
 		return m.drivesView()
 	}
+	if m.mode == modePalette {
+		return m.paletteView()
+	}
 	if m.promptModal() {
 		return m.promptView()
+	}
+	if m.whichKey {
+		return m.whichKeyView()
 	}
 	return m.dualView()
 }
@@ -458,19 +464,19 @@ func (m model) statusLine() string {
 }
 
 func (m model) footer() string {
-	// A prompt window carries its own keys, so the footer drops the browse
-	// hints that don't apply while it is open — but keeps a status line, which
-	// is often what the prompt is answering.
-	if m.promptModal() {
+	// A prompt, palette or which-key window carries its own keys, so the footer
+	// drops the browse hints that don't apply while one is open — but keeps a
+	// status line, which is often what the window is answering.
+	if m.promptModal() || m.mode == modePalette || m.whichKey {
 		if m.status == "" {
 			return ""
 		}
 		return m.statusLine()
 	}
-	// A pending g shows what the next key can do, so the chords don't have to
-	// be memorised.
-	if m.pendingG {
-		return promptStyle.Render(truncate(m.gotoHint(m.width), m.width))
+	// A pending chord shows what the next key can do, so the chords don't have
+	// to be memorised. Once its window is up the footer stops repeating it.
+	if c, ok := m.pendingChord(); ok && !m.whichKey {
+		return promptStyle.Render(truncate(chordHint(c.title, c.entries(m), m.width), m.width))
 	}
 	if m.status != "" {
 		return m.statusLine()
@@ -600,64 +606,41 @@ func (m model) pickerFullView() string {
 
 type kb struct{ key, desc string }
 
-// helpBindings is the keybinding list shown by ?. The goto chords are appended
-// from the model, since which of them exist depends on the machine.
+// helpBindings is the keybinding list shown by ?. It is the command registry
+// rendered, plus the goto chords, which depend on which directories this
+// machine has.
 func (m model) helpBindings() []kb {
-	binds := []kb{
-		{"tab", "switch active pane"},
-		{"F5 / F6", "copy / move to other pane"},
-		{"h / ←", "parent directory"},
-		{"j / ↓", "down"},
-		{"k / ↑", "up"},
-		{"l / → / enter", "enter directory / open file"},
-		{"gg", "go to top"},
-		{"G", "go to bottom"},
-		{"ctrl-d / ctrl-u", "half page down / up"},
-		{"V", "visual select (j/k extend, V keeps)"},
-		{"space", "select / deselect, move down"},
-		{"esc", "leave visual / clear selection"},
-		{"O", "open with… (app menu)"},
-		{"e", "edit in nvim"},
-		{"E", "open current dir in file manager"},
-		{"y", "yank (copy)"},
-		{"x", "cut"},
-		{"p", "paste here"},
-		{"c", "copy path / name to clipboard"},
-		{"d", "delete (confirm)"},
-		{"r", "rename"},
-		{"a", "new file (or folder, end with /)"},
-		{"z", "zip / unzip"},
-		{"s / /", "filter (type; esc exits)"},
-		{"t", "sort name / newest"},
-		{".", "show / hide dotfiles"},
-		{"D", "show / hide directories"},
-		{"f", "deep find"},
-		{"n", "cycle sort: newest → oldest → name"},
-		{"m", "bookmark dir"},
-		{"b", "jump to bookmark"},
-		{"M", "external drives (u unmount, e eject)"},
-		{"?", "toggle this help"},
-		{"q / ctrl-c", "quit"},
+	binds := make([]kb, 0, len(commandSet)+len(m.gotos))
+	for _, c := range commandSet {
+		binds = append(binds, kb{c.prettyKeys(), c.desc})
 	}
 	for _, t := range m.gotos {
-		if t.key == "g" {
-			continue // gg is already listed above
-		}
 		binds = append(binds, kb{"g " + t.key, "go to " + t.label})
 	}
 	return binds
 }
 
-const (
-	helpKeyW    = 16 // widest key label ("ctrl-d / ctrl-u") plus a space
-	helpMinDesc = 24 // narrower descriptions than this aren't worth a column
-)
+// helpKeyW is the width of the key column — as wide as the widest label, which
+// depends on what happens to be bound.
+func (m model) helpKeyW() int {
+	w := 8
+	for _, b := range m.helpBindings() {
+		if n := ansi.StringWidth(b.key); n > w {
+			w = n
+		}
+	}
+	return w
+}
+
+// helpMinDesc is the narrowest description worth giving a second column to.
+const helpMinDesc = 24
 
 // helpLayout works out how the bindings are arranged for the current terminal:
 // two columns when they fit at a readable width, one otherwise, plus how many
 // rows exist and how many of them are on screen.
 func (m model) helpLayout() (cols, colW, inner, rows, visible int) {
 	binds := m.helpBindings()
+	helpKeyW := m.helpKeyW()
 	descW := 0
 	for _, k := range binds {
 		if n := ansi.StringWidth(k.desc); n > descW {
@@ -703,6 +686,7 @@ func (m model) helpView() string { return m.floatOver(m.helpBox()) }
 // column-major, scrolled to m.helpTop.
 func (m model) helpBox() string {
 	binds := m.helpBindings()
+	helpKeyW := m.helpKeyW()
 	cols, colW, inner, rows, visible := m.helpLayout()
 	descW := colW - helpKeyW - 1
 	if descW < 1 {
