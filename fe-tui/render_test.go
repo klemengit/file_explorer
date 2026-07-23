@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestAbbrevHome(t *testing.T) {
@@ -73,6 +75,54 @@ func TestRenderRowColumns(t *testing.T) {
 	out = strip(p.renderRow(file, true, false))
 	if !strings.Contains(out, "1.5K") || !strings.Contains(out, "2026-01-02 15:04") {
 		t.Errorf("cursor file row missing columns: %q", out)
+	}
+}
+
+// Emoji and CJK characters draw two columns each. Measuring them as one rune
+// makes a row overflow its pane, and lipgloss wraps the overflow onto a second
+// line instead of clipping it — which grows one pane's box taller than the
+// other and skews the whole two-pane layout.
+func TestRenderRowWideRunesStayInsideThePane(t *testing.T) {
+	p := pane{width: 60}
+	mt := time.Date(2026, 1, 2, 15, 4, 0, 0, time.UTC)
+
+	for _, name := range []string{
+		"⚡ Dashboard.md",
+		"📒Lists.md",
+		"✅ TODO.md",
+		"🔗 Links.md",
+		"日本語のファイル.md",
+		strings.Repeat("🔗", 40) + ".md", // long enough to need truncating
+	} {
+		r := row{label: name, name: name, size: 1500, modTime: mt}
+		for _, cursor := range []bool{false, true} {
+			out := strip(p.renderRow(r, cursor, false))
+			if w := ansi.StringWidth(out); w > p.width {
+				t.Errorf("row %q (cursor=%v) drew %d cells, pane is %d: %q", name, cursor, w, p.width, out)
+			}
+			if strings.Contains(out, "\n") {
+				t.Errorf("row %q wrapped: %q", name, out)
+			}
+		}
+	}
+}
+
+// The same overflow reaches the pane box, where a wrapped row shows up as an
+// extra line and pushes this pane's border out of step with its neighbour's.
+func TestPaneBoxHeightSurvivesWideRunes(t *testing.T) {
+	mt := time.Date(2026, 1, 2, 15, 4, 0, 0, time.UTC)
+	m := model{width: 120, height: 24}
+	m.panes[0] = pane{dir: "/tmp", width: 58, height: 23}
+	m.panes[1] = m.panes[0]
+	for _, name := range []string{"⚡ Dashboard.md", "📒Lists.md", "✅ TODO.md"} {
+		m.panes[1].rows = append(m.panes[1].rows, row{label: name, name: name, size: 1500, modTime: mt})
+		m.panes[0].rows = append(m.panes[0].rows, row{label: "plain.md", name: "plain.md", size: 1500, modTime: mt})
+	}
+
+	left := strings.Count(m.paneBox(&m.panes[0], true), "\n")
+	right := strings.Count(m.paneBox(&m.panes[1], false), "\n")
+	if left != right {
+		t.Errorf("emoji pane is %d lines tall, plain pane is %d — the boxes will not line up", right+1, left+1)
 	}
 }
 

@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // gotoTarget is one `g`-chord destination: press g, then key, and the active
@@ -250,7 +250,7 @@ func (m model) gotoHint(width int) string {
 		keys = append(keys, t.key)
 	}
 	full := "goto: " + strings.Join(append(named, "esc cancel"), " · ")
-	if width <= 0 || utf8.RuneCountInString(full) <= width {
+	if width <= 0 || ansi.StringWidth(full) <= width {
 		return full
 	}
 	return "goto: " + strings.Join(keys, " ") + " · esc cancel"

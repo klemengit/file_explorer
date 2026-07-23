@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // abbrevHome shortens the home-directory prefix of an absolute path to "~"
@@ -25,22 +25,29 @@ func abbrevHome(p string) string {
 	return p
 }
 
+// truncate cuts s down to w terminal cells, ending it in an ellipsis when
+// something had to go.
+//
+// Cells, not runes: an emoji or a CJK character is one rune but takes two
+// columns, so a filename like "⚡ Dashboard.md" measured by rune count comes
+// out a column narrower than it draws. A row built to that measurement
+// overflows its pane by a column, lipgloss wraps it rather than clipping it,
+// and the box grows a line taller than its neighbour — which is how one
+// emoji-heavy directory knocks the whole two-pane layout out of alignment.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	if utf8.RuneCountInString(s) <= w {
+	if ansi.StringWidth(s) <= w {
 		return s
 	}
-	rs := []rune(s)
-	if w == 1 {
-		return "…"
-	}
-	return string(rs[:w-1]) + "…"
+	return ansi.Truncate(s, w, "…")
 }
 
+// padRight pads s with spaces out to w terminal cells (see truncate on why
+// cells rather than runes).
 func padRight(s string, w int) string {
-	n := utf8.RuneCountInString(s)
+	n := ansi.StringWidth(s)
 	if n >= w {
 		return s
 	}
@@ -521,12 +528,12 @@ func (m model) pickerRow(i, inner int) string {
 // pickerNaturalW is the width the picker would like: enough for its longest
 // item, its title and its hint, before the terminal has its say.
 func (m model) pickerNaturalW() int {
-	w := utf8.RuneCountInString(m.pickerHint()) + 2
-	if n := utf8.RuneCountInString(m.pickerTitle) + 2; n > w {
+	w := ansi.StringWidth(m.pickerHint()) + 2
+	if n := ansi.StringWidth(m.pickerTitle) + 2; n > w {
 		w = n
 	}
 	for _, it := range m.pickerAll {
-		if n := utf8.RuneCountInString(abbrevHome(it)) + 4; n > w {
+		if n := ansi.StringWidth(abbrevHome(it)) + 4; n > w {
 			w = n
 		}
 	}
@@ -642,7 +649,7 @@ func (m model) helpLayout() (cols, colW, inner, rows, visible int) {
 	binds := m.helpBindings()
 	descW := 0
 	for _, k := range binds {
-		if n := utf8.RuneCountInString(k.desc); n > descW {
+		if n := ansi.StringWidth(k.desc); n > descW {
 			descW = n
 		}
 	}
