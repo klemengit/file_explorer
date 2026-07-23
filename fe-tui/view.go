@@ -93,6 +93,9 @@ func (m model) View() string {
 	if m.mode == modeDrives {
 		return m.drivesView()
 	}
+	if m.promptModal() {
+		return m.promptView()
+	}
 	return m.dualView()
 }
 
@@ -442,12 +445,27 @@ func (p pane) renderRow(r row, cursor, marked bool) string {
 	return line
 }
 
+// statusLine renders m.status in the colour its level calls for.
+func (m model) statusLine() string {
+	switch m.statusLv {
+	case lvlWarn:
+		return warnStyle.Render(m.status)
+	case lvlErr:
+		return errStyle.Render(m.status)
+	default:
+		return statusStyle.Render(m.status)
+	}
+}
+
 func (m model) footer() string {
-	switch m.mode {
-	case modeFilter, modeRename, modeCreate, modeOpenWith, modeArchive:
-		return promptStyle.Render(m.ti.View())
-	case modeConfirm:
-		return warnStyle.Render(m.confirmMsg + "  (y/n)")
+	// A prompt window carries its own keys, so the footer drops the browse
+	// hints that don't apply while it is open — but keeps a status line, which
+	// is often what the prompt is answering.
+	if m.promptModal() {
+		if m.status == "" {
+			return ""
+		}
+		return m.statusLine()
 	}
 	// A pending g shows what the next key can do, so the chords don't have to
 	// be memorised.
@@ -455,14 +473,7 @@ func (m model) footer() string {
 		return promptStyle.Render(truncate(m.gotoHint(m.width), m.width))
 	}
 	if m.status != "" {
-		switch m.statusLv {
-		case lvlWarn:
-			return warnStyle.Render(m.status)
-		case lvlErr:
-			return errStyle.Render(m.status)
-		default:
-			return statusStyle.Render(m.status)
-		}
+		return m.statusLine()
 	}
 	hint := "hjkl move · tab switch pane · V/space select · F5/F6 copy/move · / filter · f find · y/x/p yank/cut/paste · a new · r rename · d delete · ? help · q quit"
 	return hintStyle.Render(truncate(hint, m.width))

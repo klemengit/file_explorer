@@ -88,7 +88,8 @@ very narrow terminals.
 | `q` / `ctrl-c`     | quit                                     |
 
 In the filter and picker menus: type to narrow, `↑`/`↓` (or `ctrl-j`/`ctrl-k`)
-to move, `enter` to select, `esc` to cancel.
+to move, `enter` to select, `esc` to cancel. Both are floating windows — see
+[Prompts](#prompts--r-a-z-d).
 
 ### Go-to chords (`g`)
 
@@ -160,6 +161,33 @@ panes still visible around them, rather than pages that take the screen over:
 
 The one exception is `f` (deep find), which stays full-screen: it lists every
 file under the current directory, so it wants all the room it can get.
+
+#### Prompts (`/`, `r`, `a`, `z`, `d`)
+
+Every prompt is a floating window too — the way `:` works in Neovim, or an
+input in yazi — rather than a line squeezed into the footer. Each one is
+titled with what it is doing, says what it is acting on, and lists its own
+keys along the bottom:
+
+```
+╭────────────────────────────────────────────────╮
+│ rename                                         │
+│ renaming 'plain.md'                            │
+│ › plain.md                                     │
+│ enter confirm · esc cancel                     │
+╰────────────────────────────────────────────────╯
+```
+
+The panes keep updating underneath, which is what makes the filter usable:
+type in the `/` window and the active pane narrows to the matches behind it as
+you go. `↑`/`↓` (or `ctrl-j`/`ctrl-k`) move through them without leaving the
+window, `enter` opens whatever is under the cursor, and `esc` clears the filter.
+
+The `d` delete confirmation is a window on the same footing — `y` or `enter` to
+go ahead, `n` or `esc` to back out.
+
+A long directory path in the window's second line is cut from the **left**
+(`…/file_exp/fe-tui`), since the tail is the part that tells you where you are.
 
 The help window lays the bindings out in two columns when the terminal is wide
 enough and falls back to one column when it isn't; if the list still doesn't

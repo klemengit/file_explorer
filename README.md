@@ -16,6 +16,7 @@ different keybindings.
 | Multi-key bindings (`gg`, `G`) | yes | no — `fzf` owns the keys |
 | Go-to chords (`gd` → Downloads) | yes — configurable | no |
 | Remembers the right pane between runs | yes | no |
+| Prompts as floating windows (`:`-style) | yes | no — `gum` takes the screen |
 | Multi-selection (`V`, `space`) | yes | no |
 | Create files / folders (`a`) | yes | no |
 | External drives window (`M`) | yes — mount / unmount / eject, and it names whatever is keeping a busy drive from unmounting | no |

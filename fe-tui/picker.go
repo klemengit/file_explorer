@@ -167,7 +167,8 @@ func (m model) pickerSelect() (tea.Model, tea.Cmd) {
 	case pickOpenWith:
 		// The trailing item past the app list is "Custom command…".
 		if idx >= len(m.openWith) {
-			m.startPrompt(modeOpenWith, "command…", "")
+			m.startPrompt(modeOpenWith, "opening "+describeQuoted(m.openWithTargets),
+				"command…", "")
 			return m, m.ti.Focus()
 		}
 		cmd := m.launchApp(m.openWith[idx], m.openWithTargets)

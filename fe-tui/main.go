@@ -97,6 +97,10 @@ type model struct {
 	mode mode
 	ti   textinput.Model
 
+	// What the open prompt window is acting on ("renaming 'notes.md'"), shown
+	// above its input. Set whenever a prompt starts.
+	promptSubject string
+
 	confirmKind  confirmKind
 	confirmPaths []string
 	confirmMsg   string
@@ -630,10 +634,12 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		if target, ok := p.selectedTarget(); ok {
-			m.startPrompt(modeRename, "new name…", filepath.Base(target))
+			m.startPrompt(modeRename, "renaming "+describeQuoted([]string{target}),
+				"new name…", filepath.Base(target))
 		}
 	case "a":
-		m.startPrompt(modeCreate, "name, end with / for a folder…", "")
+		m.startPrompt(modeCreate, "in "+abbrevHome(p.dir),
+			"name, end with / for a folder…", "")
 	case "z":
 		m.zip()
 	case "s", "/":
@@ -763,18 +769,14 @@ func (m model) openSelected() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) startPrompt(md mode, placeholder, value string) {
+// startPrompt opens a prompt window. subject says what is being acted on and
+// is shown above the input; the mode's own name is the window's title, so the
+// input just carries a sigil — and a two-cell one, because the window sizes
+// the input around it.
+func (m *model) startPrompt(md mode, subject, placeholder, value string) {
 	m.mode = md
-	switch md {
-	case modeRename:
-		m.ti.Prompt = "rename: "
-	case modeCreate:
-		m.ti.Prompt = "new: "
-	case modeArchive:
-		m.ti.Prompt = "zip as: "
-	default:
-		m.ti.Prompt = "open with: "
-	}
+	m.promptSubject = subject
+	m.ti.Prompt = "› "
 	m.ti.SetValue(value)
 	m.ti.CursorEnd()
 	m.ti.Placeholder = placeholder
@@ -866,7 +868,8 @@ func (m *model) zip() {
 		m.reload()
 		m.setStatus(lvlInfo, "%s", msg)
 	default:
-		m.startPrompt(modeArchive, "archive name…", filepath.Base(m.cur().dir)+".zip")
+		m.startPrompt(modeArchive, "zipping "+describeQuoted(targets),
+			"archive name…", filepath.Base(m.cur().dir)+".zip")
 	}
 }
 
