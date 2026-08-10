@@ -2,7 +2,7 @@ package main
 
 import "github.com/charmbracelet/lipgloss"
 
-// Tokyo Night palette — mirrors the colors from the original fe.sh.
+// Tokyo Night palette — the source of every color in the UI.
 const (
 	colBlue    = "#7aa2f7"
 	colGreen   = "#9ece6a"

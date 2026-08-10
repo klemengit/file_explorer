@@ -980,9 +980,26 @@ func fuzzyMatch(pattern, s string) bool {
 	return pi == len(pattern)
 }
 
+// version is stamped at build time with -ldflags "-X main.version=v0.1.0";
+// a plain `go build` leaves it as "dev".
+var version = "dev"
+
+const usage = `usage: fe [directory]
+
+Browses the current directory, or the one given. Press ? inside fe for the
+key bindings, or : for the command palette.`
+
 func main() {
 	start := "."
 	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-v", "--version":
+			fmt.Println("fe", version)
+			return
+		case "-h", "--help":
+			fmt.Println(usage)
+			return
+		}
 		start = os.Args[1]
 	}
 	abs, err := filepath.Abs(start)

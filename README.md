@@ -1,199 +1,486 @@
 # fe
 
-A minimal, modal terminal file explorer with a Tokyo Night theme. You navigate
-with `hjkl`, run file actions with single keys, and press `s` to filter.
+A minimal, modal terminal file explorer in Go, using
+[Bubble Tea](https://github.com/charmbracelet/bubbletea) and
+[Lip Gloss](https://github.com/charmbracelet/lipgloss), themed Tokyo Night.
+You navigate two side-by-side panes with `hjkl`, run file actions with single
+keys, and press `s` or `/` to filter.
 
-There are **two implementations** in this repo. They share the same idea, the
-same theme and the same bookmarks file, but they are separate programs with
-different keybindings.
+Because it owns its own input loop, real vim motions work: `gg` / `G`, `g`-chords
+that jump straight to a directory, visual selection with `V`.
 
-| | [`fe-tui/`](fe-tui) — Go | `fe.sh` — shell |
-|---|---|---|
-| Status | **current, recommended** | the original, still works |
-| Built on | [Bubble Tea](https://github.com/charmbracelet/bubbletea) | [`fzf`](https://github.com/junegunn/fzf) + [`gum`](https://github.com/charmbracelet/gum) |
-| Install | build one binary (needs Go) | source a shell function |
-| Two panes side by side | yes | no |
-| Multi-key bindings (`gg`, `G`) | yes | no — `fzf` owns the keys |
-| Go-to chords (`gd` → Downloads) | yes — configurable | no |
-| Which-key window for pending chords | yes — after a 0.4 s pause | no |
-| Command palette (`:`) over every command | yes | no |
-| Remembers the right pane between runs | yes | no |
-| Prompts as floating windows (`:`-style) | yes | no — `gum` takes the screen |
-| Multi-selection (`V`, `space`) | yes | no |
-| Create files / folders (`a`) | yes | no |
-| External drives window (`M`) | yes — mount / unmount / eject, and it names whatever is keeping a busy drive from unmounting | no |
-| Leaves your shell in the browsed dir | no | yes |
+> **Note:** this is a normal binary, so it does **not** change your shell's
+> directory on quit. It's for browsing and file operations.
 
-**Start with [`fe-tui/README.md`](fe-tui/README.md)** — that's the current
-version, and its keybindings are *not* the ones listed further down this page.
+## Install
 
-```bash
-cd fe-tui
-go build -o fe .                 # needs Go ≥ 1.24.2
-install -m755 fe ~/.local/bin/fe
-```
+`fe` is a Linux program — it leans on `lsblk`, `udisksctl`, `/proc` and
+`xdg-open` throughout. Prebuilt binaries are published for **x86-64** and
+**arm64**; they are statically linked, so they need no runtime libraries at all.
 
-The Go version is meant to replace the shell one: install it as `fe` and drop
-the `source .../fe.sh` line from your shell rc. The one thing you give up is the
-`cd`-on-quit trick — a normal binary can't change its parent shell's directory.
-
-Bookmarks are shared between the two, one path per line in
-`${XDG_DATA_HOME:-~/.local/share}/fe/bookmarks`, so you can switch without
-losing them.
-
----
-
-## The shell version (`fe.sh`)
-
-Everything below documents `fe.sh` only — a thin, fast layer over `fzf` and
-`gum` that lives as a shell function, so when you quit it leaves you in the
-directory you were browsing.
-
-### Requirements
-
-**Required**
-
-- [`fzf`](https://github.com/junegunn/fzf) ≥ 0.36 (uses `--disabled`, `enable-search`, `unbind`/`rebind`)
-- [`gum`](https://github.com/charmbracelet/gum) (prompts, confirms, logging)
-
-**Optional**
-
-- `nvim` — the `e` (edit) action
-- `fd` — faster recursive `f` (find); falls back to `find`
-- `xdg-open` — the default-app `open` action and `g` (open dir in file manager)
-- `zip` / `unzip` — the `z` action
-
-### Install
-
-#### One-liner
-
-Install `fzf` and `gum` first (see [Requirements](#requirements)), then:
-
-```bash
-wget -qO- https://raw.githubusercontent.com/klemengit/file_explorer/main/install.sh | bash
-```
-
-or with curl:
+### One-liner
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/klemengit/file_explorer/main/install.sh | bash
 ```
 
-This downloads `fe.sh` into `~/.local/share/fe/` and adds a `source` line to your
-shell rc (`~/.bashrc` or `~/.zshrc`).
+or with wget:
 
-#### From a clone
+```bash
+wget -qO- https://raw.githubusercontent.com/klemengit/file_explorer/main/install.sh | bash
+```
+
+This downloads the latest release for your architecture, checks it against the
+published `SHA256SUMS`, and installs it to `~/.local/bin/fe`. **No Go needed.**
+
+| Variable | Effect |
+|---|---|
+| `FE_VERSION=v0.1.0` | install a specific release instead of the latest |
+| `FE_BIN_DIR=/usr/local/bin` | install somewhere other than `~/.local/bin` |
+
+Or grab a binary yourself from the
+[releases page](https://github.com/klemengit/file_explorer/releases) and drop it
+on your `PATH`.
+
+### Building from source
+
+Needs Go ≥ 1.24.2. Use this for your own edits, or on an architecture the
+releases don't cover.
 
 ```bash
 git clone https://github.com/klemengit/file_explorer.git
 cd file_explorer
-./install.sh
+./build.sh
 ```
 
-`install.sh` checks dependencies, then adds a `source` line for the local
-`fe.sh` to your shell rc. It is idempotent — safe to re-run.
+`build.sh` checks for Go, builds `fe-tui/`, stamps the version from `git
+describe`, and installs the binary. It honours `FE_BIN_DIR` too, and run
+straight from a pipe it clones into a temp directory first.
 
-Either way, reload your shell afterwards:
+By hand it's just:
 
 ```bash
-source ~/.bashrc   # or ~/.zshrc
+cd fe-tui
+go build -o fe .                 # produces the self-contained ./fe binary
+install -m755 fe ~/.local/bin/fe # put it on your PATH
 ```
 
-#### Manual install
+After editing the source (for example adding apps to `curatedApps` in
+`openwith.go`), just re-run those two commands to rebuild and reinstall.
 
-Add this to your shell rc, pointing at wherever `fe.sh` lives:
+### Optional external tools
+
+`nvim` (edit), `xdg-open` (open files / open dir in file manager), `zip` /
+`unzip`, plus `lsblk` and `udisksctl` for the `M` drives window. The `O`
+open-with menu picks up any of a broad set of apps found on your `PATH`.
+
+## Usage
 
 ```bash
-source /path/to/fe.sh
+fe            # browse the current directory
+fe ~/code     # browse a specific directory
+fe --version  # which build is this
 ```
 
-### Usage
+Each row shows the name plus a size and last-modified date (`YYYY-MM-DD HH:MM`);
+directories and symlinks show `-` for size. The columns hide automatically on
+very narrow terminals.
 
-```bash
-fe          # open in the current directory
-fe ~/code   # open in a specific directory
+## Keybindings
+
+| Key                | Action                                   |
+|--------------------|------------------------------------------|
+| `h` / `←`          | parent directory                         |
+| `j` / `↓`          | down                                     |
+| `k` / `↑`          | up                                       |
+| `l` / `→` / `enter`| enter directory / open file              |
+| `gg`               | go to top                                |
+| `g` + key          | go to a directory — `gd` Downloads, `gh` home, … |
+| `G`                | go to bottom                             |
+| `ctrl-d` / `ctrl-u`| half page down / up                      |
+| `V`                | visual select (`j`/`k` extend, `V` keeps)|
+| `space`            | select / deselect, then move down        |
+| `esc`              | leave visual mode / clear the selection  |
+| `O`                | open with… (searchable app menu)         |
+| `e`                | edit in `nvim`                           |
+| `E`                | open current dir in system file manager  |
+| `y`                | yank (copy)                              |
+| `x`                | cut                                      |
+| `p`                | paste here                               |
+| `c`                | copy path / name to clipboard (menu)     |
+| `d`                | delete (with confirmation)               |
+| `r`                | rename                                   |
+| `a`                | new file — or folder, if the name ends `/`|
+| `z`                | zip / unzip                              |
+| `s` / `/`          | filter (type; `esc` exits)               |
+| `t`                | sort by name / newest                    |
+| `.`                | show / hide dotfiles                     |
+| `D`                | show / hide directories                  |
+| `f`                | deep find (recursive)                    |
+| `n`                | cycle sort: newest → oldest → name        |
+| `m`                | bookmark current directory               |
+| `b`                | jump to a bookmark (`ctrl-d` deletes)    |
+| `M`                | external drives (mount / unmount / eject)|
+| `:`                | command palette — search every command    |
+| `?`                | toggle help                              |
+| `q` / `ctrl-c`     | quit                                     |
+
+In the filter and picker menus: type to narrow, `↑`/`↓` (or `ctrl-j`/`ctrl-k`)
+to move, `enter` to select, `esc` to cancel. Both are floating windows — see
+[Prompts](#prompts--r-a-z-d).
+
+Every one of these commands lives in a single list in the source, which the key
+dispatch, the `?` help and the `:` palette all read. There is no second copy to
+keep in step, so a command cannot be bound but undocumented.
+
+### The command palette (`:`)
+
+`:` opens a floating window listing every command with the key that runs it.
+Type to narrow it, `↑`/`↓` to move, `enter` to run, `esc` to close.
+
+```
+╭────────────────────────────────────────╮
+│ commands                               │
+│ › zip                                  │
+│ ▶ zip / unzip                         z│
+│ ↑↓ move · enter run · esc close        │
+╰────────────────────────────────────────╯
 ```
 
-`fe` is **modal**. It starts in *command mode*, where letters are commands (not
-search). Press `s` or `/` to drop into *search mode* and type to filter; `esc` returns
-to command mode.
+It is for **finding** commands, not for running them quickly — every command in
+it is already one keypress away, and the palette shows you which keypress, so
+using it teaches you not to need it. That is also why it matches on words the
+row doesn't show: `mkdir` finds "new file", `archive` finds "zip / unzip".
 
-### Keybindings
+The plain motions (`j`, `k`, `ctrl-d`, `space`, …) are left out — a fuzzy list
+is a slow way to press `j` — but they are still in `?`.
 
-#### Command mode (default)
+A command that can't do anything right now (`paste` with nothing yanked) stays
+in the list, greyed out, so the palette answers "can `fe` do this at all?" as
+well as "do it". Picking one says why instead of doing nothing.
 
-| Key       | Action                                   |
-|-----------|------------------------------------------|
-| `h`       | go to parent directory (←)               |
-| `j`       | move down (↓)                            |
-| `k`       | move up (↑)                              |
-| `l`       | enter directory / open file (→)          |
-| `enter`   | open in default app, or enter directory  |
-| `O`       | open with… (prompts for a command)       |
-| `e`       | edit in `nvim`                           |
-| `g`       | open current dir in system file manager  |
-| `y`       | yank (copy) to clipboard                 |
-| `x`       | cut to clipboard                         |
-| `p`       | paste clipboard here                     |
-| `d`       | delete (with confirmation)               |
-| `r`       | rename                                   |
-| `z`       | zip a file/dir, or unzip a `.zip`        |
-| `s` / `/` | filter the current directory             |
-| `t`       | toggle sort: name ↔ last modified        |
-| `.`       | show / hide dotfiles                     |
-| `D`       | show / hide directories                  |
-| `f`       | deep recursive find (from current dir)   |
-| `n`       | 10 newest files (recursive, newest first)|
-| `m`       | bookmark the current directory           |
-| `b`       | jump to a bookmark (`ctrl-d` deletes)    |
-| `?`       | toggle the help panel                    |
-| `q` / `ctrl-c` | quit                                |
+It is **not** a command line: there is nothing to type arguments into, because
+the prompt windows already collect those.
 
-`enter`/`l` open files in the **default application** (`xdg-open`). Use `e` to
-open in `nvim`.
+### Go-to chords (`g`)
 
-The `t`, `.` and `D` toggles are sticky for the session and combine freely (e.g.
-hide dotfiles *and* sort by modified time). Dotfiles are hidden by default.
+`g` waits for a second key and jumps the active pane straight there — `gd` for
+Downloads, `gh` for home. It's the same chord `gg` already used, extended: the
+key after `g` is always taken as part of the chord, so `gd` can never be read as
+`d` (delete).
 
-> Several of these differ in the Go version — there `g` starts a chord (`gg`
-> for the top of the list, `gd` for Downloads, and so on), `E` opens the file
-> manager, and `n` cycles the current directory's sort order.
-> See [`fe-tui/README.md`](fe-tui/README.md) for its table.
+While the `g` is pending the footer lists what the next key will do, so nothing
+has to be memorised; `esc` (or any unbound key) calls it off. Hesitate about
+0.4 s and the full list floats up as a window — see
+[Which-key](#which-key-windows). The same list is in the `?` help.
 
-#### Search mode (after pressing `s` or `/`)
+| Chord | Goes to |
+|-------|---------|
+| `gg`  | the top of the list (as before) |
+| `gh`  | your home directory |
+| `gd`  | Downloads |
+| `gD`  | Documents |
+| `gk`  | Desktop |
+| `gp`  | Pictures |
+| `gm`  | Music |
+| `gv`  | Videos |
+| `gc`  | `~/.config` |
+| `gt`  | `/tmp` |
+| `gr`  | `/` |
+| `g.`  | the directory `fe` was started in |
+| `go`  | whatever the **o**ther pane is showing |
 
-| Key                     | Action                                  |
-|-------------------------|-----------------------------------------|
-| *(type)*                | filter the current directory            |
-| `↑` `↓` / `ctrl-k` `ctrl-j` | move through matches                |
-| `enter`                 | open / enter the highlighted match      |
-| `esc`                   | clear filter, return to command mode    |
+The user directories come from your desktop's own XDG settings rather than from
+hardcoded English names, so on a localized system `gd` goes to `~/Prenosi` and
+says so. **A chord whose directory doesn't exist is dropped**, and so is one
+that would only repeat an earlier chord — a machine with no `~/Music` simply has
+no `gm`, and one whose Desktop is configured as the home directory has no `gk`.
+Press `?` to see what your machine ended up with.
 
-#### Special rows
+#### Your own chords
 
-- `..` — the first row; selecting it (or pressing `h`) goes to the parent.
-- `[paste …]` — appears when the clipboard holds something. Selecting it offers
-  **paste here** or **dismiss** (clears the clipboard). You can also paste
-  anywhere with `p`.
+Put them in `${XDG_CONFIG_HOME:-~/.config}/fe/goto`, one per line — a
+single-character key, then the directory:
 
-#### Bookmarks
+```
+# key  where it goes
+w      ~/work/current
+n      ~/notes
+d  =   /mnt/big/downloads     # replaces the built-in gd
+```
 
-Press `m` to bookmark the current directory and `b` to open a picker of saved
+`~` is expanded, `#` starts a comment, and an `=` between the two is optional.
+A key that already exists is replaced where it stands; anything else is added
+after the built-ins. `gg` is the one chord that can't be rebound.
+
+### Where the panes start
+
+The **left** pane always opens in the directory `fe` was invoked from (or the
+one given on the command line). The **right** pane picks up wherever it was when
+you last quit, so the place you were copying to is still there next time.
+
+That one path is written on exit to
+`${XDG_STATE_HOME:-~/.local/state}/fe/right-pane`. If it has since been deleted
+— an unplugged drive, say — the right pane just opens alongside the left one.
+Delete the file to forget it.
+
+### Floating windows
+
+The menus are small windows that float in the middle of the screen with both
+panes still visible around them, rather than pages that take the screen over:
+`?` (help), `:` (command palette), `O` (open with), `c` (copy to clipboard),
+`b` (bookmarks) and `M` (drives). Each one sizes itself to its contents and to
+your terminal.
+
+The one exception is `f` (deep find), which stays full-screen: it lists every
+file under the current directory, so it wants all the room it can get.
+
+#### Which-key windows
+
+A chord — a key that waits for a second key, of which `g` is currently the only
+one — floats up a window naming everything the next key can do:
+
+```
+╭──────────────────────────────╮
+│ g — goto                     │
+│ g  top         v  Videos     │
+│ h  ~           c  .config    │
+│ d  Downloads   t  tmp        │
+│ D  Documents   r  /          │
+│ p  Pictures    .  start dir  │
+│ m  Music       o  other pane │
+│ esc cancel                   │
+╰──────────────────────────────╯
+```
+
+**It waits about 0.4 s first.** Type `gd` at speed and no window ever appears —
+you already knew the key. Pause, and the window arrives to tell you. A window
+that opened instantly would flash on every chord you know by heart, which is
+the reason vim's which-key makes the same bargain.
+
+Nothing in this is specific to `g`: a new chord prefix is one entry in the
+source's chord list, and its hint line, its window and its `?` entries all come
+out of that entry.
+
+#### Prompts (`/`, `r`, `a`, `z`, `d`)
+
+Every prompt is a floating window too — the way `:` works in Neovim, or an
+input in yazi — rather than a line squeezed into the footer. Each one is
+titled with what it is doing, says what it is acting on, and lists its own
+keys along the bottom:
+
+```
+╭────────────────────────────────────────────────╮
+│ rename                                         │
+│ renaming 'plain.md'                            │
+│ › plain.md                                     │
+│ enter confirm · esc cancel                     │
+╰────────────────────────────────────────────────╯
+```
+
+The panes keep updating underneath, which is what makes the filter usable:
+type in the `/` window and the active pane narrows to the matches behind it as
+you go. `↑`/`↓` (or `ctrl-j`/`ctrl-k`) move through them without leaving the
+window, `enter` opens whatever is under the cursor, and `esc` clears the filter.
+
+The `d` delete confirmation is a window on the same footing — `y` or `enter` to
+go ahead, `n` or `esc` to back out.
+
+A long directory path in the window's second line is cut from the **left**
+(`…/file_exp/fe-tui`), since the tail is the part that tells you where you are.
+
+The help window lays the bindings out in two columns when the terminal is wide
+enough and falls back to one column when it isn't; if the list still doesn't
+fit, `j`/`k` (and `ctrl-d`/`ctrl-u`, `g`/`G`) scroll it.
+
+### Creating files and folders (`a`)
+
+`a` asks for a name and makes it in the active pane's directory. One prompt
+covers both cases: a plain name gives you an empty **file**, and a name ending
+in `/` gives you a **folder**.
+
+```
+a  →  report.md           an empty file
+a  →  drafts/             a directory
+a  →  drafts/v2/notes.md  the file, plus any parent directories it needs
+```
+
+Missing parent directories are created along the way, so you can type a whole
+path in one go. The cursor then lands on the new entry's first component
+(`drafts` in the last example), which is the part actually visible here.
+
+Names have to stay inside the directory you're in: absolute paths and names
+that climb out with `..` are refused, as is a name that already exists — `a`
+never overwrites anything.
+
+### Multi-selection (`V`, `space`)
+
+Two vim-flavoured ways to select several entries at once:
+
+- **`V`** starts a linewise visual selection at the cursor. `j`/`k` (and every
+  other motion) extend or shrink it live. A second `V` keeps the range as a
+  selection; `esc` throws it away.
+- **`space`** toggles the entry under the cursor and steps down one row, so you
+  can tap it repeatedly to pick out a block.
+
+Selected rows are green and carry a `*` in the gutter next to the cursor arrow;
+the pane header shows `[2 selected]`, and `[VISUAL]` while a range is live.
+Pressing `esc` with no live range clears the selection.
+
+Every action that can sensibly work on more than one entry acts on the whole
+selection: `y` / `x` / `p` (yank, cut, paste), `d` (delete — one confirmation
+for the batch), `F5` / `F6` (copy / move to the other pane), `z` (zip),
+`c` (copy paths to the clipboard, one per line), `e` (open all in `nvim`) and
+`O` (open with…). With nothing selected they act on the row under the cursor
+exactly as before, so nothing changes when you don't use the feature.
+
+The action **consumes** the selection: once it has run, the marks are cleared
+(a partially failed run keeps whatever it didn't get to). The selection is also
+per-directory — it is dropped when the pane navigates elsewhere — and marks
+hidden by an active filter are left out, so a bulk action never touches
+something you can't see.
+
+`..` can never be selected.
+
+### Zipping several entries (`z`)
+
+With one entry selected (or none), `z` behaves as before: it zips
+`foo` → `foo.zip`, or unzips a `.zip`. With several entries selected it asks for
+an archive name — prefilled with the current directory's name — and packs them
+all into that one archive.
+
+### Open with (`O`)
+
+`O` opens a searchable menu of applications for the highlighted file, rather
+than a bare command prompt. The list is a curated set of common apps (editors,
+browsers, image / media / PDF viewers, office suites, file managers) filtered
+down to those actually found on your `PATH`, so you only see apps you have. Type
+to fuzzy-filter, `enter` to launch.
+
+- **Terminal apps** (`nvim`, `less`, `ranger`, …) take over the screen and the
+  listing reloads when they exit.
+- **GUI apps** (VS Code, Firefox, GIMP, …) launch detached in the background.
+- **`Default app (xdg-open)`** sits at the top; **`Custom command…`** sits at
+  the bottom and drops into a free-form command prompt (the old `O` behaviour).
+
+To add or reorder entries, edit the `curatedApps` list in `openwith.go`.
+
+### External drives (`M`)
+
+`M` opens a small window floating over the two panes that lists your external
+drives — USB sticks, SD cards, external disks: anything `lsblk` reports as
+removable or hotplug. Internal partitions and your root filesystem are
+deliberately left out, so there is no way to eject the disk you are running on.
+
+Each row shows the drive's label (falling back to its vendor and model), its
+size, its filesystem and where it is mounted; the line underneath gives the
+device node and how much space is free.
+
+This window is modal: only its own keys do anything, so the browse commands
+(`y`, `p`, `d`, `z`, …) stay inert while it is open.
+
+| Key             | Action                                              |
+|-----------------|-----------------------------------------------------|
+| `j` / `k`       | move                                                |
+| `enter` / `l`   | open the drive in the active pane, mounting it first if needed |
+| `u`             | unmount                                             |
+| `e`             | eject — unmount, then power the device off          |
+| `r`             | re-read the drive list                              |
+| `F`             | force unmount — only offered after a "busy" failure |
+| `esc` / `q`     | close                                               |
+
+Unmounted drives are listed too: `enter` mounts them (via `udisksctl`, which
+needs no root) and jumps straight in. `u` just unmounts; `e` additionally powers
+the device down so it is safe to unplug — and if the hardware refuses the
+power-off, the status line says the drive was only unmounted rather than
+claiming otherwise.
+
+Mount and eject run in the background, so the window stays drawn and reports
+`Ejecting …` while it works; keys are ignored until it finishes. If a pane was
+browsing inside a drive you just unmounted, that pane falls back to your home
+directory instead of showing a directory that no longer exists.
+
+Requires `lsblk` (util-linux, present on any Linux) for the listing, and
+`udisksctl` (udisks2) for mounting and powering off; `umount` and `eject` are
+used as fallbacks where they can stand in.
+
+#### When the drive is busy
+
+A drive won't unmount while something still has a file open on it, and the
+error the system gives back is famously unhelpful:
+
+```
+Error unmounting /dev/sda1: GDBus.Error:org.freedesktop.UDisks2.Error.DeviceBusy: …
+```
+
+`fe` cuts that down to the part that matters and then answers the obvious next
+question — *what* is holding it — by listing the offending processes with their
+PID, name, and the file or directory each one has open:
+
+```
+ USB DISK is busy — 2 processes are using it
+   12345  nvim            /notes.md
+     999  bash            /
+```
+
+Paths are shown relative to the drive, so it's usually clear at a glance which
+window to go and close. Do that, press `r` to re-check, and the unmount will go
+through.
+
+The list is gathered from `/proc`, so it needs no extra tools — but for the
+same reason it only sees your own processes. If nothing can be identified the
+window says so ("something still has it open") rather than pretending the drive
+is free.
+
+If you'd rather not hunt down the process, `F` forces a **lazy unmount**: the
+filesystem is detached immediately and cleaned up once the last process lets
+go. This is offered only after a busy failure, and only on its own key, because
+anything not yet written to the drive can be lost. Closing the program properly
+is always the safer route.
+
+One thing `fe` handles on your behalf: if `fe` itself was started from inside
+the drive, its own working directory would pin the mount, so it steps back to
+your home directory before unmounting.
+
+### Copy to clipboard (`c`)
+
+`c` opens a small menu of things to copy to the **system clipboard** for the
+highlighted entry: its **absolute path**, its **relative path** (relative to the
+directory `fe` was launched from), its **file name**, or its **directory**. Each
+row previews the exact text; `enter` copies it.
+
+With several entries selected each row copies the whole list — one path (or
+name) per line — and the menu previews them joined with `·`.
+
+This uses the system clipboard (via `wl-copy` / `xclip` / `xsel`), unlike the
+in-memory `y`/`x`/`p` yank-and-paste — so you can paste the path into other
+programs.
+
+### Bookmarks (`m`, `b`)
+
+`m` bookmarks the active pane's directory; `b` opens a picker of saved
 bookmarks (`enter` jumps to one, `ctrl-d` deletes the highlighted one). Stale
-bookmarks (deleted directories) are reported when you try to jump. Bookmarks are
-stored one path per line in `${XDG_DATA_HOME:-~/.local/share}/fe/bookmarks`.
+bookmarks — directories that have since been deleted — are reported when you try
+to jump to them. They are stored one path per line in
+`${XDG_DATA_HOME:-~/.local/share}/fe/bookmarks`.
 
-### How it works
+## Odds and ends
 
-`fe.sh` runs `fzf` with `--disabled`, so typing does not filter by default —
-that frees plain letters to be command keys. Each command key writes a verb to a
-temp file and accepts, so the loop knows both the key pressed and the
-highlighted item. The `s` key flips fzf into search mode (`enable-search` +
-`unbind` the letters so they type); `esc` flips back (`disable-search` +
-`rebind`). This is also why it can't have `gg`-style chords, and why the Go
-version exists.
+- The clipboard behind `y` / `x` / `p` is **in-memory**, so it lasts one session;
+  the pending item shows in the status line.
+- Deep find (`f`) is implemented natively in Go — no `fd` or `find` dependency.
+- `n` cycles the current directory's ordering: **newest first → oldest first →
+  original (name) order**, a flat `ls -t`-style sort over the current directory.
+  The header shows `[newest]` or `[oldest]` while a time sort is active.
 
-### Theme
+## Where things live
 
-Colors are inline Tokyo Night escapes near the top of `fe.sh` (`_FE_FZF_OPTS`
-and the `_FE_*` palette variables). Edit those to retheme.
+| Path | What |
+|---|---|
+| `${XDG_DATA_HOME:-~/.local/share}/fe/bookmarks` | bookmarks, one path per line |
+| `${XDG_CONFIG_HOME:-~/.config}/fe/goto` | your own `g` chords |
+| `${XDG_STATE_HOME:-~/.local/state}/fe/right-pane` | the right pane's last directory |
+
+## Theme
+
+Colors are the Tokyo Night palette in `fe-tui/theme.go`. Edit those to retheme.
