@@ -39,6 +39,12 @@ type command struct {
 	// The motions live here: a fuzzy list is a slow way to press j.
 	hidden bool
 
+	// unavailable is why the command cannot run, for the case where the
+	// reason is a missing tool rather than a missing target. It replaces the
+	// palette's generic "nothing to act on here", and is the one thing that
+	// makes an unavailable command speak up in the browse view too.
+	unavailable string
+
 	// when reports whether the command can do anything right now. A command
 	// that can't is still listed, greyed out, so the palette answers "can fe do
 	// this at all?" as well as "do it". nil means always.
@@ -273,6 +279,12 @@ func init() {
 		{keys: []string{"b"}, desc: "jump to bookmark", run: func(m model) (tea.Model, tea.Cmd) {
 			return m.openPicker(pickBookmarks)
 		}},
+		{keys: []string{"Z"}, desc: "jump to a zoxide directory", alt: "z frecency recent cd jump",
+			when:        func(model) bool { return zoxideOK() },
+			unavailable: "zoxide is not installed",
+			run: func(m model) (tea.Model, tea.Cmd) {
+				return m.openPicker(pickZoxide)
+			}},
 		{keys: []string{"M"}, desc: "external drives (u unmount, e eject)", alt: "usb mount", run: func(m model) (tea.Model, tea.Cmd) {
 			return m.openDrives()
 		}},

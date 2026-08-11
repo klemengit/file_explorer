@@ -39,7 +39,7 @@ echo "Using Go ${go_ver:-unknown}"
 
 echo
 echo "Optional tools (features degrade gracefully if absent):"
-for opt in nvim xdg-open zip unzip lsblk udisksctl; do
+for opt in nvim xdg-open zip unzip lsblk udisksctl zoxide; do
     if command -v "$opt" &>/dev/null; then
         echo "  ✓ $opt"
     else

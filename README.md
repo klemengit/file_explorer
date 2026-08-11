@@ -71,7 +71,8 @@ After editing the source (for example adding apps to `curatedApps` in
 ### Optional external tools
 
 `nvim` (edit), `xdg-open` (open files / open dir in file manager), `zip` /
-`unzip`, plus `lsblk` and `udisksctl` for the `M` drives window. The `O`
+`unzip`, plus `lsblk` and `udisksctl` for the `M` drives window, and `zoxide`
+for the `Z` jump list. The `O`
 open-with menu picks up any of a broad set of apps found on your `PATH`.
 
 ## Usage
@@ -120,6 +121,7 @@ very narrow terminals.
 | `n`                | cycle sort: newest → oldest → name        |
 | `m`                | bookmark current directory               |
 | `b`                | jump to a bookmark (`ctrl-d` deletes)    |
+| `Z`                | jump to a zoxide directory (`ctrl-d` forgets) |
 | `M`                | external drives (mount / unmount / eject)|
 | `:`                | command palette — search every command    |
 | `?`                | toggle help                              |
@@ -463,6 +465,43 @@ bookmarks (`enter` jumps to one, `ctrl-d` deletes the highlighted one). Stale
 bookmarks — directories that have since been deleted — are reported when you try
 to jump to them. They are stored one path per line in
 `${XDG_DATA_HOME:-~/.local/share}/fe/bookmarks`.
+
+### Zoxide jumps (`Z`)
+
+If you use [zoxide](https://github.com/ajeetdsouza/zoxide), `Z` opens a floating
+picker of the directories it knows, best-frecency first — the same list `zi`
+would give you, in fe's own window instead of `fzf`. Type to narrow, `enter`
+jumps the active pane there.
+
+```
+╭──────────────────────────────────────────────────────╮
+│ zoxide  ·  enter: go · ctrl-d: forget                │
+│ / git                                                │
+│ ▶ ~/Data/git_repos                                   │
+│   ~/Data/git_repos/file_exp/.git                     │
+│ type to filter · ↑↓ move · enter select · ctrl-d …   │
+╰──────────────────────────────────────────────────────╯
+```
+
+**fe only reads the database — it never adds to it.** Browsing around in fe
+does not quietly reorder the list your shell has built up, so `Z` reaches
+exactly the places you actually went to, and nothing else. The one exception is
+one you ask for: `ctrl-d` runs `zoxide remove` on the highlighted entry. That
+forgets the directory; it does not delete it.
+
+Typing narrows the list by **zoxide's** rule rather than fe's ordinary fuzzy
+match: the terms have to appear in the path in order, and the last one has to
+land in the final path component. So `git` offers `~/Data/git_repos` but not
+the dozen projects living underneath it — which is what `z git` already does in
+your shell, and the reason the list stays short enough to read.
+
+Directories in the database that no longer exist are left out. Unlike a
+bookmark — a list you curate by hand, where a dead entry is worth a complaint —
+a zoxide database collects them as a matter of course, so reporting them would
+be noise.
+
+Without zoxide installed, `Z` and its palette entry stay listed but greyed out,
+and say `zoxide is not installed` rather than doing nothing.
 
 ## Odds and ends
 

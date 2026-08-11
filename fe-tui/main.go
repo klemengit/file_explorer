@@ -40,6 +40,7 @@ const (
 	pickBookmarks
 	pickOpenWith
 	pickCopy
+	pickZoxide
 )
 
 const (
@@ -569,8 +570,17 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.startChord(c.key)
 	}
 
-	if c, ok := commandFor(key); ok && c.available(m) {
-		return c.run(m)
+	if c, ok := commandFor(key); ok {
+		if c.available(m) {
+			return c.run(m)
+		}
+		// Most unavailable commands stay silent — pressing p with nothing
+		// yanked is a no-op you already understand. One that is off because
+		// the machine is missing a tool says so, since no amount of trying
+		// again would explain it.
+		if c.unavailable != "" {
+			m.setStatus(lvlWarn, "%s", c.unavailable)
+		}
 	}
 	return m, nil
 }

@@ -125,7 +125,11 @@ func (m model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !c.available(m) {
 			// Listing it anyway is the point — the palette answers "can fe do
 			// this?" — but running it here would do nothing silently.
-			m.setStatus(lvlWarn, "%s: nothing to act on here", c.desc)
+			if c.unavailable != "" {
+				m.setStatus(lvlWarn, "%s", c.unavailable)
+			} else {
+				m.setStatus(lvlWarn, "%s: nothing to act on here", c.desc)
+			}
 			return m, nil
 		}
 		return c.run(m)

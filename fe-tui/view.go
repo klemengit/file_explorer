@@ -559,8 +559,11 @@ func (m model) pickerNaturalW() int {
 
 func (m model) pickerHint() string {
 	hint := "type to filter · ↑↓ move · enter select · esc cancel"
-	if m.pickerKind == pickBookmarks {
+	switch m.pickerKind {
+	case pickBookmarks:
 		hint += " · ctrl-d delete"
+	case pickZoxide:
+		hint += " · ctrl-d forget"
 	}
 	return hint
 }

@@ -7,8 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// openPicker builds the item list for a find/newest/bookmark picker and enters
-// picker mode. Bookmarks with no entries stay in browse mode with a notice.
+// openPicker builds the item list for a find/bookmark/zoxide picker and enters
+// picker mode. A list that comes back empty stays in browse mode with a notice
+// saying so, rather than opening a window with nothing in it.
 func (m model) openPicker(kind pickerKind) (tea.Model, tea.Cmd) {
 	var items []string
 	var title string
@@ -21,6 +22,13 @@ func (m model) openPicker(kind pickerKind) (tea.Model, tea.Cmd) {
 		title = "bookmarks  ·  enter: go · ctrl-d: delete"
 		if len(items) == 0 {
 			m.setStatus(lvlWarn, "No bookmarks yet — press m to add one")
+			return m, nil
+		}
+	case pickZoxide:
+		items = zoxideList()
+		title = "zoxide  ·  enter: go · ctrl-d: forget"
+		if len(items) == 0 {
+			m.setStatus(lvlWarn, "zoxide knows no directories that still exist")
 			return m, nil
 		}
 	}
@@ -41,7 +49,7 @@ func (m *model) pickerApplyFilter() {
 	q := m.ti.Value()
 	m.pickerRows = m.pickerRows[:0]
 	for i, it := range m.pickerAll {
-		if q == "" || fuzzyMatch(q, it) {
+		if m.pickerMatch(q, it) {
 			m.pickerRows = append(m.pickerRows, i)
 		}
 	}
@@ -52,6 +60,19 @@ func (m *model) pickerApplyFilter() {
 		m.pickerCursor = 0
 	}
 	m.pickerClampScroll()
+}
+
+// pickerMatch is how the open picker narrows its list. Most pickers use fe's
+// plain subsequence match; the zoxide one borrows zoxide's stricter rule, so Z
+// turns up the directories z would and not a longer list of near misses.
+func (m *model) pickerMatch(q, item string) bool {
+	if q == "" {
+		return true
+	}
+	if m.pickerKind == pickZoxide {
+		return zoxideMatch(q, item)
+	}
+	return fuzzyMatch(q, item)
 }
 
 // pickerHeight is how many rows the picker shows at once. A floating picker
@@ -114,10 +135,20 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pickerClampScroll()
 		return m, nil
 	case "ctrl+d":
-		if m.pickerKind == pickBookmarks {
-			if idx, ok := m.pickerSelectedIndex(); ok {
+		// Drop the highlighted entry from whichever list is backing the
+		// picker. Neither of these touches the directory itself.
+		if idx, ok := m.pickerSelectedIndex(); ok {
+			switch m.pickerKind {
+			case pickBookmarks:
 				removeBookmark(m.pickerAll[idx])
 				m.pickerAll = loadBookmarks()
+				m.pickerApplyFilter()
+			case pickZoxide:
+				if err := zoxideForget(m.pickerAll[idx]); err != nil {
+					m.setStatus(lvlErr, "zoxide: %v", err)
+					return m, nil
+				}
+				m.pickerAll = zoxideList()
 				m.pickerApplyFilter()
 			}
 		}
@@ -158,7 +189,7 @@ func (m model) pickerSelect() (tea.Model, tea.Cmd) {
 			m.enterDir(filepath.Dir(target))
 			m.cur().cursorTo(filepath.Base(target))
 		}
-	case pickBookmarks:
+	case pickBookmarks, pickZoxide:
 		if info, err := os.Stat(item); err == nil && info.IsDir() {
 			m.enterDir(item)
 		} else {
