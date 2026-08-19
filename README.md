@@ -12,6 +12,11 @@ that jump straight to a directory, visual selection with `V`.
 > **Note:** this is a normal binary, so it does **not** change your shell's
 > directory on quit. It's for browsing and file operations.
 
+> **Note:** `fe` is **vibe-coded** — nearly every line was written by an LLM
+> from prompts, not typed by hand. It has tests and daily use behind it, but it
+> also deletes files with no undo. See
+> [How this was built](#how-this-was-built).
+
 ## Install
 
 `fe` is a Linux program — it leans on `lsblk`, `udisksctl`, `/proc` and
@@ -531,3 +536,31 @@ and say `zoxide is not installed` rather than doing nothing.
 ## Theme
 
 Colors are the Tokyo Night palette in `fe-tui/theme.go`. Edit those to retheme.
+
+## How this was built
+
+`fe` is vibe-coded. Nearly every line of Go was written by an LLM from prompts
+describing the behaviour wanted, rather than typed by hand. What each key does,
+what to reject, and when to say "no, that reads badly" is human. The
+implementation mostly is not.
+
+That belongs in the README rather than being left for you to guess, because of
+what this program does. `fe` deletes, moves and overwrites files. `d` is
+`os.RemoveAll` — it does **not** go to a trash folder, and there is no undo. A
+file manager that gets an edge case wrong costs you data rather than a stack
+trace, and code written this way is not trustworthy merely because it compiles
+and reads fluently. Reading fluently is the thing an LLM is best at.
+
+What there is to lean on:
+
+- **128 tests** over roughly 4,800 lines of Go — `cd fe-tui && go test ./...`.
+  They cover the destructive paths (bulk delete, yank and paste between panes)
+  alongside rendering and key dispatch, but they are nowhere near exhaustive.
+- Everything destructive asks first. `d` says how many entries it is about to
+  remove, and paste asks before overwriting anything already there.
+- Daily use on one machine, which catches everyday bugs and nothing rare.
+- No security review, no audit, one pair of eyes.
+
+Treat it like any small tool from a stranger's GitHub: fine for your own files,
+worth a backup before you point it at something you cannot lose. It is about
+7,800 lines including tests — small enough to read yourself, if that matters.
