@@ -102,6 +102,11 @@ type model struct {
 	// above its input. Set whenever a prompt starts.
 	promptSubject string
 
+	// The entry the cursor sat on when the filter opened, so a filter that
+	// matched nothing can put it back. Empty means the ".." row, which is
+	// always first and so needs no name.
+	filterOrigin string
+
 	confirmKind  confirmKind
 	confirmPaths []string
 	confirmMsg   string
@@ -788,18 +793,39 @@ func (m *model) applyArchive(archive string) {
 func (m model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
+		// Esc puts the lens away rather than cancelling it: whatever the
+		// filter left under the cursor is still under the cursor once the
+		// full list is back. With nothing matched there is nothing to keep,
+		// so the row the filter opened on gets it instead.
+		land := m.filterOrigin
+		if r, ok := m.cur().current(); ok && !r.isParent {
+			land = r.name
+		}
 		m.mode = modeBrowse
 		m.ti.SetValue("")
 		m.ti.Blur()
 		m.applyView()
+		m.cur().cursorTo(land)
 		return m, nil
 	case "enter":
+		// Enter acts on the match — a directory is entered, a file opened.
+		// Opening a file leaves the pane where it was but unfiltered, and the
+		// cursor is an index into the list that just grew back, so the entry
+		// has to be found again by name. Anything that moved the pane to
+		// another directory placed its own cursor and is left alone.
+		dir, name := m.cur().dir, ""
+		if r, ok := m.cur().current(); ok && !r.isParent {
+			name = r.name
+		}
 		m.mode = modeBrowse
+		m.ti.SetValue("")
 		m.ti.Blur()
 		md, cmd := m.openSelected()
 		mm := md.(model)
-		mm.ti.SetValue("")
 		mm.applyView()
+		if mm.cur().dir == dir {
+			mm.cur().cursorTo(name)
+		}
 		return mm, cmd
 	case "up", "ctrl+k", "ctrl+p":
 		m.cur().move(-1)

@@ -4,7 +4,7 @@ A minimal, modal terminal file explorer in Go, using
 [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
 [Lip Gloss](https://github.com/charmbracelet/lipgloss), themed Tokyo Night.
 You navigate two side-by-side panes with `hjkl`, run file actions with single
-keys, and press `s` or `/` to filter.
+keys, and press `/` to filter.
 
 Because it owns its own input loop, real vim motions work: `gg` / `G`, `g`-chords
 that jump straight to a directory, visual selection with `V`.
@@ -113,7 +113,7 @@ very narrow terminals.
 | `r`                | rename                                   |
 | `a`                | new file — or folder, if the name ends `/`|
 | `z`                | zip / unzip                              |
-| `s` / `/`          | filter (type; `esc` exits)               |
+| `/`                | filter (`enter` opens, `esc` keeps it)   |
 | `t`                | sort by name / newest                    |
 | `.`                | show / hide dotfiles                     |
 | `D`                | show / hide directories                  |
@@ -128,8 +128,8 @@ very narrow terminals.
 | `q` / `ctrl-c`     | quit                                     |
 
 In the filter and picker menus: type to narrow, `↑`/`↓` (or `ctrl-j`/`ctrl-k`)
-to move, `enter` to select, `esc` to cancel. Both are floating windows — see
-[Prompts](#prompts--r-a-z-d).
+to move, `enter` to select. `esc` cancels a picker, but in the filter it keeps
+the match — see [Prompts](#prompts--r-a-z-d). Both are floating windows.
 
 Every one of these commands lives in a single list in the source, which the key
 dispatch, the `?` help and the `:` palette all read. There is no second copy to
@@ -283,7 +283,15 @@ keys along the bottom:
 The panes keep updating underneath, which is what makes the filter usable:
 type in the `/` window and the active pane narrows to the matches behind it as
 you go. `↑`/`↓` (or `ctrl-j`/`ctrl-k`) move through them without leaving the
-window, `enter` opens whatever is under the cursor, and `esc` clears the filter.
+window.
+
+The two ways out differ in what they do with the match, not in whether they
+keep it. `enter` acts on it — a directory is entered, a file opened. `esc`
+closes the window and leaves the cursor sitting on it in the restored list, so
+the next key can be `r`, `d`, `y` or anything else that works on one entry. The
+filter is a lens over the pane you are already standing in, so putting the lens
+away should not move you. A filter that matched nothing has nothing to keep, and
+`esc` returns the cursor to the row it opened on.
 
 The `d` delete confirmation is a window on the same footing — `y` or `enter` to
 go ahead, `n` or `esc` to back out.

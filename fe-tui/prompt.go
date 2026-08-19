@@ -57,9 +57,9 @@ func (m model) promptHint() string {
 	case modeConfirm:
 		return "y / enter confirm · n / esc cancel"
 	case modeFilter:
-		// enter doesn't just accept the filter — it opens whatever the filter
-		// left under the cursor.
-		return "↑↓ move · enter open · esc clear"
+		// The two ways out differ in what they do with the match, not in
+		// whether they keep it: enter opens it, esc leaves the cursor on it.
+		return "↑↓ move · enter open · esc keep it"
 	}
 	return "enter confirm · esc cancel"
 }

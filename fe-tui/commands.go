@@ -216,8 +216,12 @@ func init() {
 			return m, nil
 		}},
 
-		{keys: []string{"s", "/"}, desc: "filter (type; esc exits)", alt: "search", run: func(m model) (tea.Model, tea.Cmd) {
+		{keys: []string{"/"}, desc: "filter (enter opens, esc keeps it)", alt: "search", run: func(m model) (tea.Model, tea.Cmd) {
 			m.mode = modeFilter
+			m.filterOrigin = ""
+			if r, ok := m.cur().current(); ok && !r.isParent {
+				m.filterOrigin = r.name
+			}
 			m.ti.SetValue("")
 			m.ti.Prompt = "/ "
 			m.applyView()
