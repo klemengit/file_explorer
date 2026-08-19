@@ -189,7 +189,7 @@ func init() {
 		{keys: []string{"c"}, desc: "copy path / name to clipboard", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
 			return m.openCopyMenu(m.cur().targets())
 		}},
-		{keys: []string{"d"}, desc: "delete (confirm)", alt: "remove trash", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
+		{keys: []string{"d"}, desc: "delete (confirm; no trash)", alt: "remove trash", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
 			targets := m.cur().targets()
 			m.confirmKind = confirmDelete
 			m.confirmPaths = targets

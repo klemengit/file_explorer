@@ -114,7 +114,7 @@ very narrow terminals.
 | `x`                | cut                                      |
 | `p`                | paste here                               |
 | `c`                | copy path / name to clipboard (menu)     |
-| `d`                | delete (with confirmation)               |
+| `d`                | delete (confirms; no trash, no undo)     |
 | `r`                | rename                                   |
 | `a`                | new file — or folder, if the name ends `/`|
 | `z`                | zip / unzip                              |
