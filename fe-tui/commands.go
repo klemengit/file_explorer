@@ -74,6 +74,9 @@ func init() {
 	commandSet = []command{
 		{keys: []string{"tab"}, desc: "switch active pane", run: func(m model) (tea.Model, tea.Cmd) {
 			m.active = 1 - m.active
+			// Looking at a pane again is as good a moment as any to make sure
+			// it still says what the directory says.
+			m.autoRefresh(true)
 			return m, nil
 		}},
 		{keys: []string{"f5"}, desc: "copy to other pane", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
@@ -229,6 +232,10 @@ func init() {
 		}},
 		{keys: []string{"f"}, desc: "deep find", alt: "search recursive", run: func(m model) (tea.Model, tea.Cmd) {
 			return m.openPicker(pickFind)
+		}},
+		{keys: []string{"ctrl+r"}, desc: "reload both panes", alt: "refresh rescan reread", run: func(m model) (tea.Model, tea.Cmd) {
+			m.autoRefresh(true)
+			return m, nil
 		}},
 		{keys: []string{"t"}, desc: "sort name / newest", run: func(m model) (tea.Model, tea.Cmd) {
 			// Toggle between name order and newest-first.

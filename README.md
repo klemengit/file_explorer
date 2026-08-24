@@ -119,6 +119,7 @@ very narrow terminals.
 | `a`                | new file — or folder, if the name ends `/`|
 | `z`                | zip / unzip                              |
 | `/`                | filter (`enter` opens, `esc` keeps it)   |
+| `ctrl-r`           | reload both panes                        |
 | `t`                | sort by name / newest                    |
 | `.`                | show / hide dotfiles                     |
 | `D`                | show / hide directories                  |
@@ -230,6 +231,26 @@ That one path is written on exit to
 `${XDG_STATE_HOME:-~/.local/state}/fe/right-pane`. If it has since been deleted
 — an unplugged drive, say — the right pane just opens alongside the left one.
 Delete the file to forget it.
+
+### Keeping up with the directory (`ctrl-r`)
+
+A pane notices files that appear or disappear underneath it — finish a download
+into the directory you are looking at and the entry shows up on its own. There
+is no filesystem watch behind this: once a second each pane checks its own
+directory's modification time and re-reads it only when that has moved, which
+costs two `stat` calls a second while `fe` sits idle. Switching panes with `tab`
+re-reads both, and `ctrl-r` does it on demand.
+
+A directory's modification time does not move when a file already inside it is
+written to, so a download filling up would otherwise keep the size it had when
+it started. Every fifth check reads regardless, which keeps the size and date
+columns honest within a few seconds.
+
+The cursor stays on the **entry** it was on, not the row number — a new file
+sorting in above it does not drag your selection down a line. A pane holding a
+live visual range is left alone until you commit or cancel it, and so is the
+listing under an open prompt or confirmation, which is still naming the files it
+was opened on.
 
 ### Floating windows
 

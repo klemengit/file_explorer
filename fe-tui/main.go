@@ -75,6 +75,10 @@ type pane struct {
 	width   int
 	height  int
 
+	// stamp is the directory's mtime as of the last read. The refresh poll
+	// compares against it to decide the pane has gone stale; see watch.go.
+	stamp time.Time
+
 	sortMode sortMode
 	showDirs bool
 	showDots bool
@@ -116,6 +120,10 @@ type model struct {
 	statusLv int
 	showHelp bool
 	helpTop  int // first visible row of the help window, when it scrolls
+
+	// ticks counts the refresh polls, so that every fullEvery-th one can
+	// re-read the panes whether or not they look changed. See watch.go.
+	ticks int
 
 	// The chord waiting for its second key ("g"), empty when none is. whichKey
 	// says its window is up; chordGen dates the window ticks, so one left over
@@ -227,6 +235,10 @@ func (m *model) goParent() {
 // reload re-reads the pane's directory and rebuilds its row list, applying the
 // given filter query ("" = no filter). Returns any read error.
 func (p *pane) reload(filter string) error {
+	// Stamped before the read, not after: an entry created while listDir is
+	// running leaves a directory newer than the stamp, so the next poll picks
+	// it up. Stamping afterwards would swallow that write instead.
+	p.stamp = dirStamp(p.dir)
 	entries, err := listDir(p.dir, p.sortMode, p.showDirs, p.showDots)
 	if err != nil {
 		entries = nil
@@ -450,7 +462,7 @@ func (p pane) selectedTarget() (string, bool) {
 	return filepath.Join(p.dir, r.name), true
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd { return refreshTick() }
 
 // layout recomputes each pane's render box from the terminal size and the
 // the terminal size, then re-clamps both panes' scroll offsets.
@@ -499,6 +511,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.whichKey = true
 		}
 		return m, nil
+
+	case refreshTickMsg:
+		m.ticks++
+		// Only the browse view refreshes itself. Every other mode is holding
+		// on to something that names rows — a confirm's list of paths, a
+		// prompt's subject, a picker's matches — and a listing that moved
+		// underneath it would answer for files that are no longer the ones on
+		// the screen.
+		if m.mode == modeBrowse {
+			m.autoRefresh(m.ticks%fullEvery == 0)
+		}
+		return m, refreshTick()
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
