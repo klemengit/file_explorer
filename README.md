@@ -113,7 +113,7 @@ very narrow terminals.
 | `y`                | yank (copy)                              |
 | `x`                | cut                                      |
 | `p`                | paste here                               |
-| `c`                | copy path / name to clipboard (menu)     |
+| `c`                | copy path / name to clipboard (menu: `a`/`r`/`n`/`d`) |
 | `d`                | delete (confirms; no trash, no undo)     |
 | `r`                | rename                                   |
 | `a`                | new file — or folder, if the name ends `/`|
@@ -481,9 +481,11 @@ your home directory before unmounting.
 ### Copy to clipboard (`c`)
 
 `c` opens a small menu of things to copy to the **system clipboard** for the
-highlighted entry: its **absolute path**, its **relative path** (relative to the
-directory `fe` was launched from), its **file name**, or its **directory**. Each
-row previews the exact text; `enter` copies it.
+highlighted entry: its **absolute path** (`a`), its **relative path** (`r`,
+relative to the directory `fe` was launched from), its **file name** (`n`), or
+its **directory** (`d`). Each row previews the exact text and prints its key, so
+`c d` copies the directory outright; `↑↓` and `enter` work too. There's no
+filter to type into — any other key is ignored, and `esc` closes the menu.
 
 With several entries selected each row copies the whole list — one path (or
 name) per line — and the menu previews them joined with `·`.

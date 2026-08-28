@@ -45,6 +45,19 @@ func (m model) openPicker(kind pickerKind) (tea.Model, tea.Cmd) {
 	return m, m.ti.Focus()
 }
 
+// pickerKeyed reports whether this picker is answered with one key per row
+// instead of by typing a filter. Keyed pickers show their key beside each row
+// and ignore every other key, so `c d` copies the directory outright.
+func (m model) pickerKeyed() bool { return m.pickerKind == pickCopy }
+
+// pickerKeyFor finds the row a shortcut key picks in a keyed picker.
+func (m model) pickerKeyFor(key string) (int, bool) {
+	if m.pickerKind == pickCopy {
+		return m.copyKeyFor(key)
+	}
+	return 0, false
+}
+
 func (m *model) pickerApplyFilter() {
 	q := m.ti.Value()
 	m.pickerRows = m.pickerRows[:0]
@@ -156,6 +169,13 @@ func (m model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.pickerSelect()
 	}
+	if m.pickerKeyed() {
+		// No filter to type into: a known key acts, anything else is ignored.
+		if idx, ok := m.pickerKeyFor(msg.String()); ok {
+			return m.pickerRun(idx)
+		}
+		return m, nil
+	}
 	var cmd tea.Cmd
 	m.ti, cmd = m.ti.Update(msg)
 	m.pickerCursor, m.pickerTop = 0, 0
@@ -175,6 +195,12 @@ func (m model) pickerSelect() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	return m.pickerRun(idx)
+}
+
+// pickerRun closes the picker and acts on the entry at idx, whether it was
+// reached with the cursor or by its shortcut key.
+func (m model) pickerRun(idx int) (tea.Model, tea.Cmd) {
 	item := m.pickerAll[idx]
 	m.mode = modeBrowse
 	m.ti.SetValue("")

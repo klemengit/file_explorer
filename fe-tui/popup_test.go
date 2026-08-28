@@ -90,7 +90,7 @@ func newTestPicker(kind pickerKind, items []string, w, h int) model {
 }
 
 func TestPickerBoxRendersRows(t *testing.T) {
-	m := newTestPicker(pickCopy, []string{"absolute path", "relative path", "file name"}, 100, 28)
+	m := newTestPicker(pickBookmarks, []string{"absolute path", "relative path", "file name"}, 100, 28)
 	box := m.pickerBox()
 	assertRectangular(t, box)
 
@@ -122,7 +122,7 @@ func TestPickerBoxKeepsHeightWhileFiltering(t *testing.T) {
 }
 
 func TestPickerBoxNoMatches(t *testing.T) {
-	m := newTestPicker(pickCopy, []string{"alpha", "beta"}, 100, 28)
+	m := newTestPicker(pickBookmarks, []string{"alpha", "beta"}, 100, 28)
 	m.ti.SetValue("zzzz")
 	m.pickerApplyFilter()
 	if out := strip(m.pickerBox()); !strings.Contains(out, "no matches") {

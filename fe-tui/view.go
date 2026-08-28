@@ -498,14 +498,18 @@ func (m model) pickerView() string {
 func (m model) pickerPopup() bool { return m.pickerKind != pickFind }
 
 // pickerBox renders a picker as a floating window: title, filter input, the
-// visible rows, and the key hints.
+// visible rows, and the key hints. A keyed picker has no filter, so its box
+// starts straight at the rows.
 func (m model) pickerBox() string {
 	inner := m.popupInner(m.pickerNaturalW())
 
-	// The input is part of the box, so it scrolls within the box's width.
-	// It renders as leading space + prompt ("/ ") + Width + a cursor cell.
-	m.ti.Width = inner - 4
-	body := []string{promptStyle.Render(" " + m.ti.View())}
+	var body []string
+	if !m.pickerKeyed() {
+		// The input is part of the box, so it scrolls within the box's width.
+		// It renders as leading space + prompt ("/ ") + Width + a cursor cell.
+		m.ti.Width = inner - 4
+		body = append(body, promptStyle.Render(" "+m.ti.View()))
+	}
 
 	h := m.pickerHeight()
 	end := m.pickerTop + h
@@ -520,7 +524,11 @@ func (m model) pickerBox() string {
 	}
 	// Keep the box a constant height while filtering, so it doesn't jump about
 	// under the cursor as matches come and go.
-	for len(body) < h+1 {
+	want := h
+	if !m.pickerKeyed() {
+		want++ // the filter line
+	}
+	for len(body) < want {
 		body = append(body, "")
 	}
 
@@ -558,6 +566,9 @@ func (m model) pickerNaturalW() int {
 }
 
 func (m model) pickerHint() string {
+	if m.pickerKeyed() {
+		return "press the key shown · ↑↓ move · enter select · esc cancel"
+	}
 	hint := "type to filter · ↑↓ move · enter select · esc cancel"
 	switch m.pickerKind {
 	case pickBookmarks:

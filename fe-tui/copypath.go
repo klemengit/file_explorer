@@ -11,9 +11,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// copyChoice is one entry in the `c` ("copy…") menu: a label and the exact text
-// written to the system clipboard when it's chosen.
+// copyChoice is one entry in the `c` ("copy…") menu: the key that picks it, a
+// label, and the exact text written to the system clipboard when it's chosen.
 type copyChoice struct {
+	key   string // press this to copy straight away, so `c d` copies the directory
 	label string
 	value string
 }
@@ -41,10 +42,10 @@ func copyChoicesFor(abs []string) []copyChoice {
 		}
 	}
 	return []copyChoice{
-		{"absolute path", strings.Join(abs, "\n")},
-		{"relative path", strings.Join(rels, "\n")},
-		{"file name", strings.Join(names, "\n")},
-		{"directory", strings.Join(dirs, "\n")},
+		{"a", "absolute path", strings.Join(abs, "\n")},
+		{"r", "relative path", strings.Join(rels, "\n")},
+		{"n", "file name", strings.Join(names, "\n")},
+		{"d", "directory", strings.Join(dirs, "\n")},
 	}
 }
 
@@ -52,13 +53,15 @@ func copyChoicesFor(abs []string) []copyChoice {
 // rows and status messages.
 func oneLine(s string) string { return strings.ReplaceAll(s, "\n", " · ") }
 
-// openCopyMenu builds the searchable `c` menu for targets: pick what to put on
-// the system clipboard (absolute/relative path, file name, or directory).
+// openCopyMenu builds the `c` menu for targets: pick what to put on the system
+// clipboard (absolute/relative path, file name, or directory). It's a keyed
+// menu rather than a filtered one — four fixed entries are quicker to answer
+// with the key printed beside them than to narrow by typing.
 func (m model) openCopyMenu(targets []string) (tea.Model, tea.Cmd) {
 	choices := copyChoicesFor(targets)
 	items := make([]string, len(choices))
 	for i, ch := range choices {
-		items[i] = fmt.Sprintf("%-14s %s", ch.label, oneLine(ch.value))
+		items[i] = fmt.Sprintf("%s  %-14s %s", ch.key, ch.label, oneLine(ch.value))
 	}
 
 	m.copyItems = choices
@@ -68,11 +71,19 @@ func (m model) openCopyMenu(targets []string) (tea.Model, tea.Cmd) {
 	m.pickerCursor = 0
 	m.pickerTop = 0
 	m.mode = modePicker
-	m.ti.Prompt = "/ "
 	m.ti.SetValue("")
-	m.ti.Placeholder = ""
 	m.pickerApplyFilter()
-	return m, m.ti.Focus()
+	return m, nil
+}
+
+// copyKeyFor finds the choice a shortcut key picks.
+func (m model) copyKeyFor(key string) (int, bool) {
+	for i, ch := range m.copyItems {
+		if ch.key == key {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // applyCopy writes the chosen entry's value to the system clipboard.
