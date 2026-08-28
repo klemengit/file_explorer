@@ -156,6 +156,10 @@ func init() {
 			return m, nil
 		}},
 
+		{keys: []string{"o"}, desc: "open in the default app", alt: "xdg-open launch", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
+			m.openDefault(m.cur().targets())
+			return m, nil
+		}},
 		{keys: []string{"O"}, desc: "open with… (app menu)", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
 			return m.openOpenWith(m.cur().targets())
 		}},

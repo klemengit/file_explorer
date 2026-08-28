@@ -2,6 +2,7 @@ package main
 
 import (
 	"os/exec"
+	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -131,6 +132,22 @@ func (m model) openOpenWith(targets []string) (tea.Model, tea.Cmd) {
 	m.ti.Placeholder = ""
 	m.pickerApplyFilter()
 	return m, m.ti.Focus()
+}
+
+// openDefault hands targets to xdg-open, which picks whatever the desktop has
+// registered for each one — a viewer for a file, the file manager for a
+// directory. One call per target: xdg-open takes a single file, so a whole
+// selection has to be opened one at a time.
+func (m *model) openDefault(targets []string) {
+	for _, t := range targets {
+		if err := openDetached("xdg-open", t); err != nil {
+			m.setStatus(lvlErr, "xdg-open %s: %v", filepath.Base(t), err)
+			return
+		}
+	}
+	if len(targets) > 0 {
+		m.setStatus(lvlInfo, "Opened %s", describePaths(targets))
+	}
 }
 
 // launchApp runs a chosen app on targets. Terminal apps take over the screen

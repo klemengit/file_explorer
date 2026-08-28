@@ -107,6 +107,7 @@ very narrow terminals.
 | `V`                | visual select (`j`/`k` extend, `V` keeps)|
 | `space`            | select / deselect, then move down        |
 | `esc`              | leave visual mode / clear the selection  |
+| `o`                | open in the default app (`xdg-open`)     |
 | `O`                | open with… (searchable app menu)         |
 | `e`                | edit in `nvim`                           |
 | `E`                | open current dir in system file manager  |
@@ -366,8 +367,8 @@ Pressing `esc` with no live range clears the selection.
 Every action that can sensibly work on more than one entry acts on the whole
 selection: `y` / `x` / `p` (yank, cut, paste), `d` (delete — one confirmation
 for the batch), `F5` / `F6` (copy / move to the other pane), `z` (zip),
-`c` (copy paths to the clipboard, one per line), `e` (open all in `nvim`) and
-`O` (open with…). With nothing selected they act on the row under the cursor
+`c` (copy paths to the clipboard, one per line), `e` (open all in `nvim`),
+`o` (open each in its default app) and `O` (open with…). With nothing selected they act on the row under the cursor
 exactly as before, so nothing changes when you don't use the feature.
 
 The action **consumes** the selection: once it has run, the marks are cleared
@@ -385,7 +386,16 @@ With one entry selected (or none), `z` behaves as before: it zips
 an archive name — prefilled with the current directory's name — and packs them
 all into that one archive.
 
-### Open with (`O`)
+### Open (`o`, `O`)
+
+`o` hands the highlighted entry straight to `xdg-open` — whatever your desktop
+has registered for it. A file opens in its default application; a directory
+opens in your file manager, so `o` on a folder is `E` for the row under the
+cursor. With several entries selected it opens each one in turn. Nothing is
+asked and the listing stays where it is.
+
+`l` / `enter` also opens a file with `xdg-open`, but on a directory it walks
+into it instead — that's the difference.
 
 `O` opens a searchable menu of applications for the highlighted file, rather
 than a bare command prompt. The list is a curated set of common apps (editors,

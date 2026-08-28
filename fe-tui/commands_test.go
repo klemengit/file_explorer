@@ -120,3 +120,31 @@ func TestUnavailableCommandsDoNotRun(t *testing.T) {
 		t.Error("paste should be available once something is yanked")
 	}
 }
+
+// o and O are two different commands: o just opens, O asks with what. They are
+// only a shift apart, so the registry has to keep them distinct.
+func TestOpenKeysAreSeparateCommands(t *testing.T) {
+	lower, ok := commandFor("o")
+	if !ok {
+		t.Fatal("o is not bound to anything")
+	}
+	upper, ok := commandFor("O")
+	if !ok {
+		t.Fatal("O is not bound to anything")
+	}
+	if lower.desc == upper.desc {
+		t.Errorf("o and O both run %q", lower.desc)
+	}
+	if lower.when == nil {
+		t.Error("o should be greyed out with nothing under the cursor")
+	}
+}
+
+// With nothing to open, o launches nothing and says nothing.
+func TestOpenDefaultOfNothingIsSilent(t *testing.T) {
+	m := model{}
+	m.openDefault(nil)
+	if m.status != "" {
+		t.Errorf("openDefault(nil) said %q", m.status)
+	}
+}
