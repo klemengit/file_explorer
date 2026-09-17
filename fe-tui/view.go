@@ -96,6 +96,9 @@ func (m model) View() string {
 	if m.mode == modePalette {
 		return m.paletteView()
 	}
+	if m.mode == modeProps {
+		return m.propsView()
+	}
 	if m.promptModal() {
 		return m.promptView()
 	}
@@ -740,4 +743,131 @@ func (m model) helpBox() string {
 		hint = "j/k scroll · " + hint
 	}
 	return popupBox("fe — keybindings", hint, body, inner)
+}
+
+// propsView floats the properties window over the two panes, which stay
+// visible around it.
+func (m model) propsView() string { return m.floatOver(m.propsBox()) }
+
+const (
+	propsWidth  = 54 // preferred inner width of the properties popup
+	propsLabelW = 10 // the label column, "contents" being the longest label
+)
+
+// propsLine lays out one "label   value" row of the properties window.
+func propsLine(label, value string, valW int) string {
+	return " " + hintStyle.Render(padRight(label, propsLabelW)) + truncate(value, valW)
+}
+
+// propsBox renders the properties window: what the entry is, then its size —
+// which for a directory is a walk still counting up, so the numbers climb while
+// the window is open.
+func (m model) propsBox() string {
+	p := m.props
+	if p == nil {
+		return ""
+	}
+	inner := m.popupInner(propsWidth)
+	nameW := inner - 2
+	valW := inner - propsLabelW - 2
+	if valW < 8 {
+		valW = 8
+	}
+
+	nameStyle := styleFor(row{isDir: p.isDir, isLink: p.isLink})
+	body := []string{
+		" " + nameStyle.Render(truncate(p.name, nameW)),
+		" " + metaStyle.Render(truncate(abbrevHome(p.path), nameW)),
+		"",
+		propsLine("type", p.kind(), valW),
+	}
+	if p.link != "" {
+		body = append(body, propsLine("target", abbrevHome(p.link), valW))
+	}
+
+	hint := "esc close"
+	if p.scan == nil {
+		body = append(body, propsLine("size", exactBytes(p.size), valW))
+	} else {
+		st := p.scan.state()
+		body = append(body,
+			propsLine("size", scanSize(st), valW),
+			propsLine("contents", scanContents(st), valW))
+		if st.skipped > 0 {
+			body = append(body, " "+warnStyle.Render(truncate(
+				fmt.Sprintf("%s %s could not be read", commas(st.skipped),
+					plural(st.skipped, "entry", "entries")), nameW)))
+		}
+		if !st.done {
+			hint = "counting… · esc stops it"
+		}
+	}
+
+	if !p.modTime.IsZero() {
+		body = append(body, propsLine("modified", p.modTime.Format("2006-01-02 15:04"), valW))
+	}
+	mode := p.mode.String()
+	if p.owner != "" {
+		mode += "  " + p.owner
+	}
+	body = append(body, propsLine("mode", mode, valW))
+
+	if p.scan != nil {
+		// Whatever room is left after the facts, minus the border, title, hint
+		// and the list's own blank line and header.
+		body = append(body, propsLargestLines(p.scan.state().largest, inner, m.height-len(body)-6)...)
+	}
+	return popupBox("properties", hint, body, inner)
+}
+
+// scanSize says how big the directory is, and is honest about not knowing yet.
+func scanSize(st scanState) string {
+	switch {
+	case !st.done:
+		return humanSize(st.bytes) + " so far…"
+	case st.skipped > 0:
+		return "at least " + exactBytes(st.bytes)
+	default:
+		return exactBytes(st.bytes)
+	}
+}
+
+// scanContents counts what is inside, at every depth.
+func scanContents(st scanState) string {
+	return fmt.Sprintf("%s %s · %s %s",
+		commas(st.files), plural(st.files, "file", "files"),
+		commas(st.dirs), plural(st.dirs, "directory", "directories"))
+}
+
+// propsLargestLines lists the biggest entries directly inside the directory —
+// the ones to go and look at when the total is bigger than it should be.
+func propsLargestLines(largest []childSize, inner, room int) []string {
+	if room < 1 {
+		return nil // a short terminal keeps the facts and drops the list
+	}
+	if len(largest) > room {
+		largest = largest[:room]
+	}
+	if len(largest) == 0 {
+		return nil
+	}
+	nameW := inner - 2 - sizeColW - 2
+	if nameW < 8 {
+		nameW = 8
+	}
+	out := []string{"", " " + hintStyle.Render("largest inside")}
+	for _, c := range largest {
+		name := c.name
+		if c.isDir {
+			name += "/"
+		}
+		style := fileStyle
+		if c.isDir {
+			style = dirStyle
+		}
+		out = append(out, fmt.Sprintf(" %s  %s",
+			metaStyle.Render(fmt.Sprintf("%*s", sizeColW, humanSize(c.bytes))),
+			style.Render(truncate(name, nameW))))
+	}
+	return out
 }

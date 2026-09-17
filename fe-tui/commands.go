@@ -303,6 +303,11 @@ func init() {
 		{keys: []string{"M"}, desc: "external drives (u unmount, e eject)", alt: "usb mount", run: func(m model) (tea.Model, tea.Cmd) {
 			return m.openDrives()
 		}},
+		{keys: []string{"s"}, desc: "properties: size, contents, owner",
+			alt: "du disk usage info stat size how big folder directory",
+			run: func(m model) (tea.Model, tea.Cmd) {
+				return m.openProps()
+			}},
 		{keys: []string{":"}, desc: "command palette", alt: "commands menu search", hidden: true, run: func(m model) (tea.Model, tea.Cmd) {
 			return m.openPalette()
 		}},

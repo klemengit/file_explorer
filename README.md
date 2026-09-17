@@ -130,6 +130,7 @@ very narrow terminals.
 | `b`                | jump to a bookmark (`ctrl-d` deletes)    |
 | `Z`                | jump to a zoxide directory (`ctrl-d` forgets) |
 | `M`                | external drives (mount / unmount / eject)|
+| `s`                | properties — size of a directory, and what is in it |
 | `:`                | command palette — search every command    |
 | `?`                | toggle help                              |
 | `q` / `ctrl-c`     | quit                                     |
@@ -258,8 +259,8 @@ was opened on.
 The menus are small windows that float in the middle of the screen with both
 panes still visible around them, rather than pages that take the screen over:
 `?` (help), `:` (command palette), `O` (open with), `c` (copy to clipboard),
-`b` (bookmarks) and `M` (drives). Each one sizes itself to its contents and to
-your terminal.
+`b` (bookmarks), `s` (properties) and `M` (drives). Each one sizes itself to
+its contents and to your terminal.
 
 The one exception is `f` (deep find), which stays full-screen: it lists every
 file under the current directory, so it wants all the room it can get.
@@ -410,6 +411,61 @@ to fuzzy-filter, `enter` to launch.
   the bottom and drops into a free-form command prompt (the old `O` behaviour).
 
 To add or reorder entries, edit the `curatedApps` list in `openwith.go`.
+
+### Properties, and the size of a directory (`s`)
+
+A directory's size, as the listing shows it, is a dash. The number the
+filesystem keeps is the size of the entry list, not of what is inside — so the
+listing does not pretend to know.
+
+`s` goes and finds out. It opens a small window over the panes with what the
+entry is, when it changed, who owns it and what it is made of:
+
+```
+╭──────────────────────────────────────────────────────╮
+│ properties                                           │
+│ file_explorer                                        │
+│ ~/code/file_explorer                                 │
+│                                                      │
+│ type      directory                                  │
+│ size      6.8M  (7,113,544 bytes)                    │
+│ contents  47 files · 3 directories                   │
+│ modified  2026-09-17 07:11                           │
+│ mode      drwxrwxr-x  klemen:klemen                  │
+│                                                      │
+│ largest inside                                       │
+│    6.5M  fe-tui/                                     │
+│   27.0K  README.md                                   │
+│    1.4K  build.sh                                    │
+│ esc close                                            │
+╰──────────────────────────────────────────────────────╯
+```
+
+For a directory that means walking the whole tree, which takes as long as it
+takes. The walk runs in the background and the window counts up while it goes —
+the size reads `1.2G so far…` until it is done — so a big tree tells you
+something immediately instead of freezing `fe`. `esc` closes the window and
+calls the walk off.
+
+**largest inside** is the point of the whole thing: every byte is charged to the
+entry directly inside this directory that it sits under, so the list answers
+"where did the space actually go" without descending anywhere. It is dropped on
+a terminal too short to hold it — the numbers matter more than the list.
+
+Some details worth knowing:
+
+- Sitting on `..` gives you the properties of the directory you are in, which is
+  how you size the current directory rather than one below it.
+- Dotfiles are counted whether or not the pane is showing them. A `.git` takes
+  up the same room either way, and is usually the answer.
+- Symlinks are counted at their own size and never followed, so a link pointing
+  back up the tree can't send the walk round in circles, and a link out of it
+  can't charge this directory for bytes that live elsewhere.
+- Anything unreadable is counted and stepped over. When that happens the window
+  says how many entries it could not read, and the total reads `at least …`.
+- This is apparent size, the same thing `du --apparent-size` reports: the sum of
+  what the files say they are. Actual disk usage differs — block rounding makes
+  it larger, sparse files and compression make it smaller.
 
 ### External drives (`M`)
 

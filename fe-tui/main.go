@@ -24,6 +24,7 @@ const (
 	modePicker
 	modeDrives
 	modePalette
+	modeProps
 )
 
 type confirmKind int
@@ -114,6 +115,10 @@ type model struct {
 	confirmKind  confirmKind
 	confirmPaths []string
 	confirmMsg   string
+
+	// The open properties window, nil when there is none. It owns the
+	// background walk that adds a directory up, so closing it stops the walk.
+	props *props
 
 	clip     *clipEntry
 	status   string
@@ -505,6 +510,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case driveResultMsg:
 		return m.applyDriveResult(msg)
 
+	case propsTickMsg:
+		// Keep ticking only while a walk is still running: the redraw this tick
+		// already caused is what shows the numbers climbing.
+		if m.mode != modeProps || m.props == nil || m.props.scan == nil {
+			return m, nil
+		}
+		if m.props.scan.state().done {
+			return m, nil
+		}
+		return m, propsTick()
+
 	case whichKeyMsg:
 		// Only the chord that scheduled this tick may open a window with it.
 		if msg.gen == m.chordGen && m.pending != "" {
@@ -544,6 +560,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDrives(msg)
 		case modePalette:
 			return m.updatePalette(msg)
+		case modeProps:
+			return m.updateProps(msg)
 		}
 	}
 	return m, nil
