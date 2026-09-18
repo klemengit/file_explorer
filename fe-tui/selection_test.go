@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,6 +33,45 @@ func press(t *testing.T, m model, keys ...tea.KeyMsg) model {
 		m = tm.(model)
 	}
 	return m
+}
+
+// pressCopy drives keys like press but also runs the command each key returns,
+// feeding the messages it produces back through Update. A background copy
+// started by p or F5 actually runs to completion this way.
+func pressCopy(t *testing.T, m model, keys ...tea.KeyMsg) model {
+	t.Helper()
+	for _, k := range keys {
+		tm, cmd := m.updateBrowse(k)
+		m = tm.(model)
+		m = drainCmd(t, m, cmd)
+	}
+	return m
+}
+
+// drainCmd executes cmd the way the bubbletea program would: run it, hand the
+// message it produces to Update, and recurse into whatever commands those
+// produce — until nothing is left to run.
+func drainCmd(t *testing.T, m model, cmd tea.Cmd) model {
+	t.Helper()
+	if cmd == nil {
+		return m
+	}
+	return drainMsg(t, m, cmd())
+}
+
+// drainMsg hands msg to Update and then drains any command that came back
+// with it. A BatchMsg ([]Cmd) is unwrapped and each command run in turn.
+func drainMsg(t *testing.T, m model, msg tea.Msg) model {
+	t.Helper()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			m = drainCmd(t, m, c)
+		}
+		return m
+	}
+	tm, next := m.Update(msg)
+	m = tm.(model)
+	return drainCmd(t, m, next)
 }
 
 func keyRune(r rune) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}} }
@@ -217,13 +257,67 @@ func TestBulkYankPaste(t *testing.T) {
 	}
 
 	m.cur().cursorTo("sub")
-	m = press(t, m, keyRune('l'), keyRune('p'))
+	m = pressCopy(t, m, keyRune('l'), keyRune('p'))
 	for _, n := range []string{"a.txt", "b.txt"} {
 		if _, err := os.Lstat(filepath.Join(dst, n)); err != nil {
 			t.Errorf("%s was not pasted: %v", n, err)
 		}
 		if _, err := os.Lstat(filepath.Join(dir, n)); err != nil {
 			t.Errorf("yank must not remove the source %s: %v", n, err)
+		}
+	}
+}
+
+// TestBulkCutPaste checks a multi-entry cut (x) pastes every path into the
+// other directory, removes the sources, and empties the clipboard — the async
+// cut-paste path, which trims the clipboard differently from a copy.
+func TestBulkCutPaste(t *testing.T) {
+	m, dir := selModel(t)
+	dst := filepath.Join(dir, "sub")
+	if err := os.Mkdir(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m.reload()
+
+	m.cur().cursorTo("a.txt")
+	m = press(t, m, keyRune(' '), keyRune(' ')) // mark a.txt, b.txt
+	m = press(t, m, keyRune('x'))
+	if m.clip == nil || !m.clip.cut || len(m.clip.paths) != 2 {
+		t.Fatalf("cut should hold 2 paths, got %+v", m.clip)
+	}
+
+	m.cur().cursorTo("sub")
+	m = pressCopy(t, m, keyRune('l'), keyRune('p'))
+	for _, n := range []string{"a.txt", "b.txt"} {
+		if _, err := os.Lstat(filepath.Join(dst, n)); err != nil {
+			t.Errorf("%s was not pasted: %v", n, err)
+		}
+		if _, err := os.Lstat(filepath.Join(dir, n)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("cut must remove the source %s, got %v", n, err)
+		}
+	}
+	if m.clip != nil {
+		t.Errorf("clip = %+v, want nil after a completed cut paste", m.clip)
+	}
+}
+
+// TestBulkTransferMoveToOtherPane checks F6 moves the whole selection into the
+// inactive pane's directory, removing the sources.
+func TestBulkTransferMoveToOtherPane(t *testing.T) {
+	m, dir := selModel(t)
+	dst := t.TempDir()
+	m.panes[1].dir = dst
+	m.panes[1].reload("")
+
+	m = pressCopy(t, m, keyRune('j'), keyRune(' '), keyRune(' ')) // mark a.txt, b.txt
+	m = pressCopy(t, m, tea.KeyMsg{Type: tea.KeyF6})
+
+	for _, n := range []string{"a.txt", "b.txt"} {
+		if _, err := os.Lstat(filepath.Join(dst, n)); err != nil {
+			t.Errorf("%s was not moved to the other pane: %v", n, err)
+		}
+		if _, err := os.Lstat(filepath.Join(dir, n)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("F6 must remove the source %s, got %v", n, err)
 		}
 	}
 }
@@ -236,8 +330,8 @@ func TestBulkTransferToOtherPane(t *testing.T) {
 	m.panes[1].dir = dst
 	m.panes[1].reload("")
 
-	m = press(t, m, keyRune('j'), keyRune(' '), keyRune(' ')) // mark a.txt, b.txt
-	m = press(t, m, tea.KeyMsg{Type: tea.KeyF5})
+	m = pressCopy(t, m, keyRune('j'), keyRune(' '), keyRune(' ')) // mark a.txt, b.txt
+	m = pressCopy(t, m, tea.KeyMsg{Type: tea.KeyF5})
 
 	for _, n := range []string{"a.txt", "b.txt"} {
 		if _, err := os.Lstat(filepath.Join(dst, n)); err != nil {

@@ -481,6 +481,14 @@ func (m model) footer() string {
 	if c, ok := m.pendingChord(); ok && !m.whichKey {
 		return promptStyle.Render(truncate(chordHint(c.title, c.entries(m), m.width), m.width))
 	}
+	// A background copy/move outranks the status line — the user needs to see
+	// progress, not whatever transient message was showing when it started.
+	if m.copyBusy != nil {
+		st := m.copyBusy.state()
+		if !st.done {
+			return statusStyle.Render(truncate(copyProgressLine(m.copyVerb, st), m.width))
+		}
+	}
 	if m.status != "" {
 		return m.statusLine()
 	}

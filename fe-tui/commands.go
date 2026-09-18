@@ -80,12 +80,10 @@ func init() {
 			return m, nil
 		}},
 		{keys: []string{"f5"}, desc: "copy to other pane", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
-			m.transfer(false)
-			return m, nil
+			return m, m.transfer(false)
 		}},
 		{keys: []string{"f6"}, desc: "move to other pane", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
-			m.transfer(true)
-			return m, nil
+			return m, m.transfer(true)
 		}},
 		{keys: []string{"h", "left"}, desc: "parent directory", run: func(m model) (tea.Model, tea.Cmd) {
 			m.goParent()
@@ -190,8 +188,7 @@ func init() {
 			return m, nil
 		}},
 		{keys: []string{"p"}, desc: "paste here", when: hasClip, run: func(m model) (tea.Model, tea.Cmd) {
-			m.paste()
-			return m, nil
+			return m, m.paste()
 		}},
 		{keys: []string{"c"}, desc: "copy path / name to clipboard", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
 			return m.openCopyMenu(m.cur().targets())

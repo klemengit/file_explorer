@@ -1,10 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -63,6 +67,18 @@ type row struct {
 
 // editFinishedMsg is returned after an external editor (nvim) exits.
 type editFinishedMsg struct{ err error }
+
+// copyTickMsg redraws the status line while a background copy runs. Like the
+// refresh poll it carries nothing: what the numbers are is a question for the
+// moment it lands, read from the shared copyProgress.
+type copyTickMsg struct{}
+
+// copyResultMsg reports the outcome of a finished background copy/move back to
+// the update loop. err is nil on success; the run is also over when it is the
+// user's own cancel.
+type copyResultMsg struct {
+	err error
+}
 
 // pane holds the browse state for one directory view: its listing, cursor,
 // scroll offset, sort/visibility flags, and its own render box (width/height).
@@ -175,6 +191,127 @@ type model struct {
 	driveStuck   *drive
 	driveStuckOp string // "unmount" or "eject" — what to retry with force
 	driveHolders []holder
+
+	// A background copy/move is running when copyBusy is set. copyVerb is what
+	// the status line calls it ("copy"/"move"); copyAfter folds the finished
+	// run back into the model, taking the model as an argument rather than
+	// capturing it, since the value that exists when the run starts is stale
+	// by the time it ends.
+	copyBusy  *copyProgress
+	copyVerb  string
+	copyAfter func(model, copyOutcome) model
+}
+
+// copyRequest is one copy/move batch: what to copy or move, where to, and
+// whether it moves. transfer and paste each build one to hand to the
+// background runner.
+type copyRequest struct {
+	paths  []string
+	dstDir string
+	move   bool
+}
+
+// copyOutcome is what the completion of a background copy knows about how the
+// run went: the error (nil on success), the entry it failed on, and how many
+// top-level entries were fully processed.
+type copyOutcome struct {
+	err  error
+	name string
+	done int
+}
+
+// copyProgress is a background copy/move in progress, shared between the
+// goroutine doing the copying and the status line reading it. Everything
+// behind the mutex is written by the copy and read by the render, so both
+// sides take it.
+type copyProgress struct {
+	mu         sync.Mutex
+	current    string // current entry being copied
+	totalFiles int    // top-level entries in the batch
+	doneFiles  int    // top-level entries fully processed
+	bytesDone  int64
+	totalBytes int64
+	done       bool
+	cancel     chan struct{}
+	err        error
+}
+
+// copyState is a copy of a run's numbers, taken under the lock so the status
+// line works from one consistent moment (same shape as props' scanState).
+type copyState struct {
+	current    string
+	totalFiles int
+	doneFiles  int
+	bytesDone  int64
+	totalBytes int64
+	done       bool
+}
+
+// errCopyCancelled marks a run stopped by the user, as opposed to one that
+// failed for a reason worth reporting.
+var errCopyCancelled = errors.New("copy cancelled")
+
+// state takes a consistent snapshot of the run.
+func (cp *copyProgress) state() copyState {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	return copyState{
+		current:    cp.current,
+		totalFiles: cp.totalFiles,
+		doneFiles:  cp.doneFiles,
+		bytesDone:  cp.bytesDone,
+		totalBytes: cp.totalBytes,
+		done:       cp.done,
+	}
+}
+
+func (cp *copyProgress) setCurrent(name string) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.current = name
+}
+
+func (cp *copyProgress) addBytes(n int64) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.bytesDone += n
+}
+
+func (cp *copyProgress) addDone() {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.doneFiles++
+}
+
+// finish marks the run over and records how it ended, so the update loop stops
+// ticking once the result message lands.
+func (cp *copyProgress) finish(err error) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	cp.err = err
+	cp.done = true
+}
+
+// stop asks the running copy to stop. It is safe to call more than once,
+// since closing an already-closed channel panics.
+func (cp *copyProgress) stop() {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	select {
+	case <-cp.cancel:
+	default:
+		close(cp.cancel)
+	}
+}
+
+// cancelled reports whether the copy has been asked to stop.
+func (cp *copyProgress) cancelled() bool {
+	select {
+	case <-cp.cancel:
+		return true
+	default:
+		return false
+	}
 }
 
 func newModel(dir string) model {
@@ -521,6 +658,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, propsTick()
 
+	case copyTickMsg:
+		// Keep ticking only while a copy is still running: the redraw this
+		// tick already caused is what shows the numbers climbing.
+		if m.copyBusy == nil {
+			return m, nil
+		}
+		st := m.copyBusy.state()
+		if st.done {
+			return m, nil
+		}
+		m.setStatus(lvlInfo, "%s", copyProgressLine(m.copyVerb, st))
+		return m, copyTick()
+
+	case copyResultMsg:
+		// The run is over either way: stop showing progress and let the
+		// completion fold the outcome into the panes and clipboard.
+		if m.copyBusy == nil {
+			return m, nil
+		}
+		st := m.copyBusy.state()
+		after := m.copyAfter
+		m.copyBusy = nil
+		m.copyVerb = ""
+		m.copyAfter = nil
+		if after != nil {
+			m = after(m, copyOutcome{err: msg.err, name: st.current, done: st.doneFiles})
+		}
+		return m, nil
+
 	case whichKeyMsg:
 		// Only the chord that scheduled this tick may open a window with it.
 		if msg.gen == m.chordGen && m.pending != "" {
@@ -542,8 +708,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" {
+			if m.copyBusy != nil {
+				// Quitting mid-copy would leave a partial file behind, so
+				// ctrl+c cancels the copy instead.
+				m.copyBusy.stop()
+				return m, nil
+			}
 			m.saveSession()
 			return m, tea.Quit
+		}
+		if m.copyBusy != nil && m.mode == modeBrowse && msg.String() == "esc" {
+			m.copyBusy.stop()
+			return m, nil
 		}
 		switch m.mode {
 		case modeBrowse:
@@ -634,22 +810,59 @@ func (m model) updateBrowse(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // transfer copies (move=false) or moves (move=true) the active pane's targets —
 // the whole selection, or the row under the cursor — into the other pane's
-// directory. A failure stops the run and reports the entry that failed.
-func (m *model) transfer(move bool) {
+// directory. A failure stops the run and reports the entry that failed. Big
+// batches run in the background with a progress read-out; everything else keeps
+// the old blocking loop.
+func (m *model) transfer(move bool) tea.Cmd {
 	srcs := m.cur().targets()
 	if len(srcs) == 0 {
-		return
+		return nil
 	}
 	dstDir := m.other().dir
 	if dstDir == m.cur().dir {
 		m.setStatus(lvlWarn, "Both panes show the same directory")
-		return
+		return nil
 	}
-	verb, failed := "copy", false
+	verb := "copy"
 	if move {
 		verb = "move"
 	}
+	if m.copyBusy != nil {
+		m.setStatus(lvlWarn, "%s already running", verb)
+		return nil
+	}
+	if _, bytes, big := copyNeedsProgress(srcs); big {
+		m.setStatus(lvlInfo, "%s %s → %s …", verbTitle(verb), describePaths(srcs), abbrevHome(dstDir))
+		last := filepath.Base(srcs[len(srcs)-1])
+		req := copyRequest{paths: srcs, dstDir: dstDir, move: move}
+		return m.startCopy(req, verb, bytes, func(mm model, oc copyOutcome) model {
+			if oc.err != nil {
+				if errors.Is(oc.err, errCopyCancelled) {
+					mm.setStatus(lvlWarn, "%s cancelled", verb)
+				} else {
+					mm.setStatus(lvlErr, "%s %s: %v", verb, oc.name, oc.err)
+				}
+				// A failed or cancelled run keeps the selection so it can be
+				// retried or trimmed; the partial result shows up when the
+				// panes re-read.
+				mm.cur().reload(mm.filterQuery())
+				mm.other().reload("")
+				return mm
+			}
+			mm.cur().clearSelection()
+			mm.cur().reload(mm.filterQuery())
+			mm.other().reload("")
+			mm.other().cursorTo(last)
+			done := "Copied"
+			if move {
+				done = "Moved"
+			}
+			mm.setStatus(lvlInfo, "%s %s → %s", done, describePaths(srcs), abbrevHome(dstDir))
+			return mm
+		})
+	}
 	var last string
+	failed := false
 	for _, src := range srcs {
 		name := filepath.Base(src)
 		dst := filepath.Join(dstDir, name)
@@ -681,6 +894,7 @@ func (m *model) transfer(move bool) {
 		}
 		m.setStatus(lvlInfo, "%s %s → %s", done, describePaths(srcs), abbrevHome(dstDir))
 	}
+	return nil
 }
 
 func (m model) openSelected() (tea.Model, tea.Cmd) {
@@ -721,10 +935,14 @@ func (m *model) startPrompt(md mode, subject, placeholder, value string) {
 
 // paste drops the clipboard into the active pane's directory, asking once up
 // front if any of the entries would overwrite something already there.
-func (m *model) paste() {
+func (m *model) paste() tea.Cmd {
 	if m.clip == nil || len(m.clip.paths) == 0 {
 		m.setStatus(lvlErr, "Nothing to paste")
-		return
+		return nil
+	}
+	if m.copyBusy != nil {
+		m.setStatus(lvlWarn, "copy already running")
+		return nil
 	}
 	var clashes []string
 	for _, src := range m.clip.paths {
@@ -740,16 +958,60 @@ func (m *model) paste() {
 			m.confirmMsg = fmt.Sprintf("Overwrite %d existing entries?", len(clashes))
 		}
 		m.mode = modeConfirm
-		return
+		return nil
 	}
-	m.doPaste()
+	return m.doPaste()
 }
 
-func (m *model) doPaste() {
+func (m *model) doPaste() tea.Cmd {
 	if m.clip == nil {
-		return
+		return nil
 	}
 	paths, cut := m.clip.paths, m.clip.cut
+	verb := "copy"
+	if cut {
+		verb = "move"
+	}
+	if m.copyBusy != nil {
+		m.setStatus(lvlWarn, "%s already running", verb)
+		return nil
+	}
+	if _, bytes, big := copyNeedsProgress(paths); big {
+		orig := m.clip // in case the user yanks something new mid-run
+		m.setStatus(lvlInfo, "%s %s …", verbTitle(verb), describePaths(paths))
+		last := filepath.Base(paths[len(paths)-1])
+		req := copyRequest{paths: paths, dstDir: m.cur().dir, move: cut}
+		return m.startCopy(req, verb, bytes, func(mm model, oc copyOutcome) model {
+			if oc.err != nil {
+				if errors.Is(oc.err, errCopyCancelled) {
+					mm.setStatus(lvlWarn, "paste cancelled")
+				} else {
+					mm.setStatus(lvlErr, "paste %s: %v", oc.name, oc.err)
+				}
+				if cut && mm.clip == orig {
+					// Drop what actually moved; anything left still exists at
+					// its source.
+					mm.clip.paths = paths[oc.done:]
+					if len(mm.clip.paths) == 0 {
+						mm.clip = nil
+					}
+				}
+				mm.reload()
+				return mm
+			}
+			if cut && mm.clip == orig {
+				mm.clip = nil
+			}
+			mm.reload()
+			mm.cur().cursorTo(last)
+			done := "Copied"
+			if cut {
+				done = "Moved"
+			}
+			mm.setStatus(lvlInfo, "%s: %s", done, describePaths(paths))
+			return mm
+		})
+	}
 	var last string
 	done := 0
 	for _, src := range paths {
@@ -784,6 +1046,251 @@ func (m *model) doPaste() {
 		}
 		m.setStatus(lvlInfo, "%s: %s", verb, describePaths(paths))
 	}
+	return nil
+}
+
+// A copy large enough to stall the UI runs in the background, mirroring how
+// the drives window keeps working through a mount: the goroutine doing the
+// work reports into a shared copyProgress, a tick redraws the status line from
+// it every ~120ms, and one copyResultMsg lands when the run is over.
+
+// copyTickInterval is how often the status line redraws while a copy runs.
+// Fast enough that the progress visibly climbs, slow enough that a directory
+// of small files isn't spending its time on redraws (same as the props walk).
+const copyTickInterval = 120 * time.Millisecond
+
+func copyTick() tea.Cmd {
+	return tea.Tick(copyTickInterval, func(time.Time) tea.Msg { return copyTickMsg{} })
+}
+
+const (
+	// bigCopyThreshold: at or above this many bytes, a batch copies in the
+	// background — a synchronous copy of one file this big freezes the UI for
+	// the whole of it.
+	bigCopyThreshold = 8 << 20 // 8 MiB
+	// manyCopyFiles: at or above this many files, a batch copies in the
+	// background even when the total is small, since each file still costs a
+	// stat, an open and a close.
+	manyCopyFiles = 128
+)
+
+// tally counts what a copy of paths would move: the number of files and the
+// total bytes. A directory counts everything under it; a symlink counts once,
+// at the size of what it points at, since copying one copies the target.
+func tally(paths []string) (files int, bytes int64) {
+	for _, p := range paths {
+		info, err := os.Lstat(p)
+		if err != nil {
+			continue
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			files++
+			if ti, err := os.Stat(p); err == nil {
+				bytes += ti.Size()
+			}
+			continue
+		}
+		if !info.IsDir() {
+			files++
+			bytes += info.Size()
+			continue
+		}
+		filepath.WalkDir(p, func(_ string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			fi, ierr := d.Info()
+			if ierr != nil {
+				return nil
+			}
+			files++
+			bytes += fi.Size()
+			return nil
+		})
+	}
+	return files, bytes
+}
+
+// copyNeedsProgress reports whether a batch is worth running in the
+// background rather than in the blocking loop: several entries, or a large
+// enough copy that the UI would otherwise freeze. The tallied bytes (used for
+// the size decision) come back too, so the caller can hand them straight to
+// the background run — the walk happens once.
+func copyNeedsProgress(paths []string) (files int, bytes int64, big bool) {
+	files, bytes = tally(paths)
+	big = len(paths) > 1 || files >= manyCopyFiles || bytes >= bigCopyThreshold
+	return files, bytes, big
+}
+
+// copyWithProgressCmd starts req copying in the background: a goroutine does
+// the work, a tick refreshes the status line with progress, and a final
+// copyResultMsg reports how it ended. The tick re-arms itself in the update
+// loop while the run is still going, so only the first one is scheduled here.
+func copyWithProgressCmd(cp *copyProgress, req copyRequest) tea.Cmd {
+	done := make(chan error, 1)
+	go func() {
+		done <- cp.run(req.paths, req.dstDir, req.move)
+	}()
+	return tea.Batch(
+		copyTick(),
+		func() tea.Msg {
+			return copyResultMsg{err: <-done}
+		},
+	)
+}
+
+// startCopy records a running copy on the model and returns the command that
+// drives it. verb is "copy" or "move", what the status line calls it;
+// totalBytes is the run's full byte count, already tallied by the caller.
+// When the run ends, after folds the outcome into the model — it must take
+// the model as an argument, never capture it, because the value that exists
+// here is stale by the time the run finishes.
+func (m *model) startCopy(req copyRequest, verb string, totalBytes int64, after func(model, copyOutcome) model) tea.Cmd {
+	cp := &copyProgress{
+		totalFiles: len(req.paths),
+		totalBytes: totalBytes,
+		cancel:     make(chan struct{}),
+	}
+	m.copyBusy = cp
+	m.copyVerb = verb
+	m.copyAfter = after
+	return copyWithProgressCmd(cp, req)
+}
+
+// run does the copying, one top-level entry at a time, honouring cancellation
+// between entries (and inside files) and counting bytes as they land.
+func (cp *copyProgress) run(paths []string, dstDir string, move bool) (err error) {
+	defer func() { cp.finish(err) }()
+	for _, src := range paths {
+		if cp.cancelled() {
+			return errCopyCancelled
+		}
+		name := filepath.Base(src)
+		dst := filepath.Join(dstDir, name)
+		cp.setCurrent(name)
+		if move {
+			err = cp.moveOne(src, dst)
+		} else {
+			err = cp.copyOne(src, dst)
+		}
+		if err != nil {
+			return err
+		}
+		cp.addDone()
+	}
+	return nil
+}
+
+func (cp *copyProgress) copyOne(src, dst string) error {
+	info, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return cp.copyDir(src, dst, info)
+	}
+	return cp.copyFile(src, dst, info)
+}
+
+// copyFile copies one file in 256 KiB chunks, reporting bytes as they land
+// and stopping when the user cancels.
+func (cp *copyProgress) copyFile(src, dst string, info os.FileInfo) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, 256*1024)
+	for {
+		if cp.cancelled() {
+			out.Close()
+			return errCopyCancelled
+		}
+		n, rerr := in.Read(buf)
+		if n > 0 {
+			if _, werr := out.Write(buf[:n]); werr != nil {
+				out.Close()
+				return werr
+			}
+			cp.addBytes(int64(n))
+		}
+		if rerr == io.EOF {
+			break
+		}
+		if rerr != nil {
+			out.Close()
+			return rerr
+		}
+	}
+	return out.Close()
+}
+
+// copyDir copies a directory tree, one file at a time.
+func (cp *copyProgress) copyDir(src, dst string, info os.FileInfo) error {
+	if cp.cancelled() {
+		return errCopyCancelled
+	}
+	if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if cp.cancelled() {
+			return errCopyCancelled
+		}
+		if err := cp.copyOne(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// moveOne moves src to dst — a rename when they share a filesystem, otherwise
+// a progress-reporting copy followed by removing the source.
+func (cp *copyProgress) moveOne(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	if err := cp.copyOne(src, dst); err != nil {
+		return err
+	}
+	return os.RemoveAll(src)
+}
+
+// verbTitle capitalises a verb for a status line ("copy" → "Copying").
+func verbTitle(verb string) string {
+	if verb == "move" {
+		return "Moving"
+	}
+	return "Copying"
+}
+
+// copyProgressLine renders the running-copy status line: what is being copied
+// and how far along, in bytes when the total is known and in files either way.
+func copyProgressLine(verb string, st copyState) string {
+	var b strings.Builder
+	b.WriteString(verbTitle(verb))
+	if st.current != "" {
+		b.WriteString(" " + st.current)
+	}
+	if st.totalBytes > 0 {
+		pct := 100 * st.bytesDone / st.totalBytes
+		fmt.Fprintf(&b, " — %s / %s (%d%%)", humanSize(st.bytesDone), humanSize(st.totalBytes), pct)
+	}
+	if st.totalFiles > 1 || st.doneFiles > 0 {
+		fmt.Fprintf(&b, " · %d/%d", st.doneFiles, st.totalFiles)
+	}
+	return b.String()
 }
 
 // zip archives the active pane's targets. A single entry keeps the old
@@ -996,6 +1503,7 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y", "enter":
 		m.mode = modeBrowse
+		var cmd tea.Cmd
 		switch m.confirmKind {
 		case confirmDelete:
 			done := 0
@@ -1016,9 +1524,9 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setStatus(lvlWarn, "Deleted: %s", describePaths(m.confirmPaths))
 			}
 		case confirmPaste:
-			m.doPaste()
+			cmd = m.doPaste()
 		}
-		return m, nil
+		return m, cmd
 	case "n", "N", "esc":
 		m.mode = modeBrowse
 		return m, nil
