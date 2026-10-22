@@ -110,7 +110,7 @@ very narrow terminals.
 | `o`                | open in the default app (`xdg-open`)     |
 | `O`                | open with… (searchable app menu)         |
 | `e`                | edit in `nvim`                           |
-| `E`                | open current dir in system file manager  |
+| `E`                | reveal in the system file manager (selected in its folder) |
 | `y`                | yank (copy)                              |
 | `x`                | cut                                      |
 | `p`                | paste here                               |

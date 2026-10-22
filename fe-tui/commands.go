@@ -165,10 +165,8 @@ func init() {
 			c := exec.Command("nvim", m.cur().targets()...)
 			return m, tea.ExecProcess(c, func(err error) tea.Msg { return editFinishedMsg{err} })
 		}},
-		{keys: []string{"E"}, desc: "open current dir in file manager", run: func(m model) (tea.Model, tea.Cmd) {
-			if err := openDetached("xdg-open", m.cur().dir); err != nil {
-				m.setStatus(lvlErr, "xdg-open: %v", err)
-			}
+		{keys: []string{"E"}, desc: "reveal in the file manager", alt: "show in folder explorer", run: func(m model) (tea.Model, tea.Cmd) {
+			m.reveal(m.cur().targets())
 			return m, nil
 		}},
 		{keys: []string{"y"}, desc: "yank (copy)", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
