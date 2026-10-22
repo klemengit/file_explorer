@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"net/url"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // revealURIs turns paths into the file:// URIs ShowItems takes. dbus-send
@@ -56,4 +61,93 @@ func (m *model) reveal(targets []string) {
 		return
 	}
 	m.setStatus(lvlWarn, "Opened the folder; this file manager can't highlight %s", describePaths(targets))
+}
+
+// justDocOK reports whether just-doc is installed, looked up once like zoxide.
+var justDocOK = sync.OnceValue(func() bool {
+	_, err := exec.LookPath("just-doc")
+	return err == nil
+})
+
+// justDocKind reports whether just-doc can open path: a PDF, Markdown or HTML
+// file, judged by extension.
+func justDocKind(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".pdf", ".md", ".markdown", ".html", ".htm":
+		return true
+	}
+	return false
+}
+
+// justDocExitMsg reports a just-doc that has exited. The first one started
+// keeps running as the server for every document, so a quick exit is either a
+// hand-over to that server (err nil) or a failure, whose stderr says why.
+type justDocExitMsg struct {
+	name   string
+	err    error
+	stderr string
+}
+
+// startJustDoc launches just-doc on one file and returns a command that waits
+// for it. It gets its own session so the server outlives the terminal fe runs
+// in, and its stderr is kept so a failure — a Markdown file pandoc can't
+// convert, say — is reported instead of vanishing.
+func startJustDoc(path string) (tea.Cmd, error) {
+	var stderr bytes.Buffer
+	cmd := exec.Command("just-doc", path)
+	cmd.Stderr = &stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return func() tea.Msg {
+		err := cmd.Wait()
+		return justDocExitMsg{name: filepath.Base(path), err: err, stderr: stderr.String()}
+	}, nil
+}
+
+// justDocReason condenses just-doc's stderr to one status line: the first
+// two non-blank lines, which for a pandoc failure are "could not convert" and
+// the actual error.
+func justDocReason(stderr string) string {
+	var lines []string
+	for _, l := range strings.Split(stderr, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+			if len(lines) == 2 {
+				break
+			}
+		}
+	}
+	return strings.Join(lines, " ")
+}
+
+// openJustDoc opens the targets just-doc can read, one call each (it takes a
+// single file), and says how many of the rest it passed over.
+func (m *model) openJustDoc(targets []string) tea.Cmd {
+	var docs []string
+	for _, t := range targets {
+		if justDocKind(t) {
+			docs = append(docs, t)
+		}
+	}
+	if len(docs) == 0 {
+		m.setStatus(lvlWarn, "just-doc opens PDF, Markdown and HTML files only")
+		return nil
+	}
+	var waits []tea.Cmd
+	for _, d := range docs {
+		wait, err := startJustDoc(d)
+		if err != nil {
+			m.setStatus(lvlErr, "just-doc %s: %v", filepath.Base(d), err)
+			return tea.Batch(waits...)
+		}
+		waits = append(waits, wait)
+	}
+	if skipped := len(targets) - len(docs); skipped > 0 {
+		m.setStatus(lvlWarn, "Opened %s in just-doc; skipped %d that aren't PDF, Markdown or HTML", describePaths(docs), skipped)
+	} else {
+		m.setStatus(lvlInfo, "Opened %s in just-doc", describePaths(docs))
+	}
+	return tea.Batch(waits...)
 }

@@ -169,6 +169,15 @@ func init() {
 			m.reveal(m.cur().targets())
 			return m, nil
 		}},
+		{keys: []string{"J"}, desc: "open in just-doc (PDF, Markdown, HTML)", alt: "review comment highlight annotate md pdf html",
+			when:        func(model) bool { return justDocOK() },
+			unavailable: "just-doc is not installed",
+			run: func(m model) (tea.Model, tea.Cmd) {
+				if targets := m.cur().targets(); len(targets) > 0 {
+					return m, m.openJustDoc(targets)
+				}
+				return m, nil
+			}},
 		{keys: []string{"y"}, desc: "yank (copy)", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
 			p := m.cur()
 			targets := p.targets()

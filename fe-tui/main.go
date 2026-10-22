@@ -644,6 +644,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reload()
 		return m, nil
 
+	case justDocExitMsg:
+		if msg.err != nil {
+			if reason := justDocReason(msg.stderr); reason != "" {
+				m.setStatus(lvlErr, "just-doc %s: %s", msg.name, reason)
+			} else {
+				m.setStatus(lvlErr, "just-doc %s: %v", msg.name, msg.err)
+			}
+		}
+		return m, nil
+
 	case driveResultMsg:
 		return m.applyDriveResult(msg)
 

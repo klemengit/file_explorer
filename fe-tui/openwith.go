@@ -83,6 +83,7 @@ var curatedApps = []app{
 	{"Okular (okular)", []string{"okular"}, false},
 	{"MuPDF (mupdf)", []string{"mupdf"}, false},
 	{"LibreOffice (libreoffice)", []string{"libreoffice"}, false},
+	{"just-doc (PDF, Markdown, HTML)", []string{"just-doc"}, false},
 
 	// GUI file managers
 	{"Files / Nautilus (nautilus)", []string{"nautilus"}, false},
@@ -154,6 +155,10 @@ func (m *model) openDefault(targets []string) {
 // via tea.ExecProcess (reloading the listing when they exit); GUI apps are
 // detached.
 func (m *model) launchApp(a app, targets []string) tea.Cmd {
+	// just-doc takes one file per call and only some kinds of file.
+	if a.argv[0] == "just-doc" {
+		return m.openJustDoc(targets)
+	}
 	args := append(append([]string{}, a.argv[1:]...), targets...)
 	if a.terminal {
 		c := exec.Command(a.argv[0], args...)

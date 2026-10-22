@@ -111,6 +111,7 @@ very narrow terminals.
 | `O`                | open with… (searchable app menu)         |
 | `e`                | edit in `nvim`                           |
 | `E`                | reveal in the system file manager (selected in its folder) |
+| `J`                | open in `just-doc` (PDF, Markdown, HTML) |
 | `y`                | yank (copy)                              |
 | `x`                | cut                                      |
 | `p`                | paste here                               |
