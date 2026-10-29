@@ -25,7 +25,7 @@ const (
 // you type.
 func (m model) promptModal() bool {
 	switch m.mode {
-	case modeFilter, modeRename, modeCreate, modeOpenWith, modeArchive, modeConfirm:
+	case modeFilter, modeRename, modeCreate, modeOpenWith, modeArchive, modeConfirm, modeSaveAs:
 		return true
 	}
 	return false
@@ -43,6 +43,8 @@ func (m model) promptTitle() string {
 		return "new"
 	case modeArchive:
 		return "zip as"
+	case modeSaveAs:
+		return "save as"
 	case modeOpenWith:
 		return "open with"
 	case modeConfirm:
@@ -70,7 +72,7 @@ func (m model) promptHint() string {
 // question is its body.
 func (m model) promptContext() string {
 	switch m.mode {
-	case modeRename, modeCreate, modeArchive, modeOpenWith:
+	case modeRename, modeCreate, modeArchive, modeOpenWith, modeSaveAs:
 		return m.promptSubject
 	}
 	return ""

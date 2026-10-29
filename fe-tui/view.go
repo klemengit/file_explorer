@@ -304,6 +304,9 @@ func (m model) driveStatusLine(inner int) string {
 // dualView renders both panes in side-by-side bordered boxes (the active pane
 // highlighted) with the shared footer full-width beneath.
 func (m model) dualView() string {
+	if m.choosing() {
+		return m.paneBox(&m.panes[0], true) + "\n" + m.footer()
+	}
 	left := m.paneBox(&m.panes[0], m.active == 0)
 	right := m.paneBox(&m.panes[1], m.active == 1)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
@@ -491,6 +494,9 @@ func (m model) footer() string {
 	}
 	if m.status != "" {
 		return m.statusLine()
+	}
+	if m.choosing() {
+		return hintStyle.Render(truncate(m.chooserHint(), m.width))
 	}
 	hint := "hjkl move · tab switch pane · V/space select · F5/F6 copy/move · / filter · f find · y/x/p yank/cut/paste · a new · r rename · d delete · ? help · q quit"
 	return hintStyle.Render(truncate(hint, m.width))

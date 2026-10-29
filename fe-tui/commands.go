@@ -72,17 +72,17 @@ var commandSet []command
 
 func init() {
 	commandSet = []command{
-		{keys: []string{"tab"}, desc: "switch active pane", run: func(m model) (tea.Model, tea.Cmd) {
+		{keys: []string{"tab"}, desc: "switch active pane", when: notChoosing, run: func(m model) (tea.Model, tea.Cmd) {
 			m.active = 1 - m.active
 			// Looking at a pane again is as good a moment as any to make sure
 			// it still says what the directory says.
 			m.autoRefresh(true)
 			return m, nil
 		}},
-		{keys: []string{"f5"}, desc: "copy to other pane", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
+		{keys: []string{"f5"}, desc: "copy to other pane", when: func(m model) bool { return notChoosing(m) && hasTarget(m) }, run: func(m model) (tea.Model, tea.Cmd) {
 			return m, m.transfer(false)
 		}},
-		{keys: []string{"f6"}, desc: "move to other pane", when: hasTarget, run: func(m model) (tea.Model, tea.Cmd) {
+		{keys: []string{"f6"}, desc: "move to other pane", when: func(m model) bool { return notChoosing(m) && hasTarget(m) }, run: func(m model) (tea.Model, tea.Cmd) {
 			return m, m.transfer(true)
 		}},
 		{keys: []string{"h", "left"}, desc: "parent directory", run: func(m model) (tea.Model, tea.Cmd) {
@@ -90,6 +90,9 @@ func init() {
 			return m, nil
 		}},
 		{keys: []string{"l", "right", "enter"}, desc: "enter directory / open file", run: func(m model) (tea.Model, tea.Cmd) {
+			if m.choosing() {
+				return m.chooseSelected()
+			}
 			return m.openSelected()
 		}},
 		{keys: []string{"j", "down"}, desc: "down", hidden: true, run: func(m model) (tea.Model, tea.Cmd) {
@@ -320,7 +323,13 @@ func init() {
 			m.helpTop = 0
 			return m, nil
 		}},
+		{keys: []string{"ctrl+s"}, desc: "file dialog: save here / choose", alt: "chooser pick confirm", when: func(m model) bool { return m.choosing() }, run: func(m model) (tea.Model, tea.Cmd) {
+			return m.chooseHere()
+		}},
 		{keys: []string{"q"}, keyLabel: "q / ctrl-c", desc: "quit", alt: "exit", run: func(m model) (tea.Model, tea.Cmd) {
+			if m.choosing() {
+				return m, tea.Quit // an empty answer cancels the dialog
+			}
 			m.saveSession()
 			return m, tea.Quit
 		}},

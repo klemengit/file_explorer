@@ -29,6 +29,7 @@ const (
 	modeDrives
 	modePalette
 	modeProps
+	modeSaveAs // the chooser's save-as name; see chooser.go
 )
 
 type confirmKind int
@@ -36,6 +37,7 @@ type confirmKind int
 const (
 	confirmDelete confirmKind = iota
 	confirmPaste
+	confirmSave
 )
 
 type pickerKind int
@@ -112,6 +114,9 @@ type pane struct {
 type model struct {
 	panes  [2]pane
 	active int // 0 = left, 1 = right
+
+	// Set when fe runs as a file dialog (--choose); see chooser.go.
+	choose *chooser
 
 	width  int
 	height int
@@ -610,6 +615,9 @@ func (m model) Init() tea.Cmd { return refreshTick() }
 // the terminal size, then re-clamps both panes' scroll offsets.
 func (m *model) layout() {
 	leftOuter := m.width / 2
+	if m.choosing() {
+		leftOuter = m.width
+	}
 	rightOuter := m.width - leftOuter
 	// Each pane is drawn inside a 1-cell border, so its content width is the
 	// box width minus the two border columns.
@@ -724,7 +732,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.copyBusy.stop()
 				return m, nil
 			}
-			m.saveSession()
+			if !m.choosing() {
+				m.saveSession()
+			}
 			return m, tea.Quit
 		}
 		if m.copyBusy != nil && m.mode == modeBrowse && msg.String() == "esc" {
@@ -736,7 +746,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateBrowse(msg)
 		case modeFilter:
 			return m.updateFilter(msg)
-		case modeRename, modeCreate, modeOpenWith, modeArchive:
+		case modeRename, modeCreate, modeOpenWith, modeArchive, modeSaveAs:
 			return m.updatePrompt(msg)
 		case modeConfirm:
 			return m.updateConfirm(msg)
@@ -1379,7 +1389,11 @@ func (m model) updateFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowse
 		m.ti.SetValue("")
 		m.ti.Blur()
-		md, cmd := m.openSelected()
+		open := model.openSelected
+		if m.choosing() {
+			open = model.chooseSelected
+		}
+		md, cmd := open(m)
 		mm := md.(model)
 		mm.applyView()
 		if mm.cur().dir == dir {
@@ -1418,6 +1432,8 @@ func (m model) updatePrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.applyCreate(val)
 		case modeArchive:
 			m.applyArchive(val)
+		case modeSaveAs:
+			return m.applySaveAs(val)
 		default:
 			m.applyOpenWith(val)
 		}
@@ -1535,6 +1551,8 @@ func (m model) updateConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case confirmPaste:
 			cmd = m.doPaste()
+		case confirmSave:
+			return m.finishChoice(m.confirmPaths)
 		}
 		return m, cmd
 	case "n", "N", "esc":
@@ -1581,22 +1599,60 @@ func fuzzyMatch(pattern, s string) bool {
 var version = "dev"
 
 const usage = `usage: fe [directory]
+       fe --choose OUT [--multiple] [--directory] [--save NAME] [directory]
 
 Browses the current directory, or the one given. Press ? inside fe for the
-key bindings, or : for the command palette.`
+key bindings, or : for the command palette.
+
+--choose runs fe as a file dialog: the chosen paths are written to OUT, one
+per line, and quitting without choosing leaves OUT empty. --multiple allows
+several, --directory chooses a folder, and --save NAME asks where to save NAME.`
 
 func main() {
 	start := "."
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
+	var ch *chooser
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		// Both flags that take a value need one.
+		value := func() string {
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "fe: %s needs a value\n", args[i])
+				os.Exit(2)
+			}
+			i++
+			return args[i]
+		}
+		switch a := args[i]; a {
 		case "-v", "--version":
 			fmt.Println("fe", version)
 			return
 		case "-h", "--help":
 			fmt.Println(usage)
 			return
+		case "--choose":
+			if ch == nil {
+				ch = &chooser{}
+			}
+			ch.out = value()
+		case "--multiple", "--directory", "--save":
+			if ch == nil {
+				ch = &chooser{}
+			}
+			switch a {
+			case "--multiple":
+				ch.multiple = true
+			case "--directory":
+				ch.dirs = true
+			default:
+				ch.saveName = value()
+			}
+		default:
+			start = a
 		}
-		start = os.Args[1]
+	}
+	if ch != nil && ch.out == "" {
+		fmt.Fprintln(os.Stderr, "fe: --multiple, --directory and --save need --choose OUT")
+		os.Exit(2)
 	}
 	abs, err := filepath.Abs(start)
 	if err != nil {
@@ -1611,7 +1667,8 @@ func main() {
 	// The left pane opens where fe was invoked; the right one picks up where
 	// it was left last time, falling back to the same directory.
 	m := newModel(abs)
-	if last := loadRightPane(); last != "" && last != abs {
+	m.choose = ch
+	if last := loadRightPane(); ch == nil && last != "" && last != abs {
 		if err := m.panes[1].enterDir(last, ""); err != nil {
 			m.panes[1].enterDir(abs, "")
 		}
