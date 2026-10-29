@@ -9,6 +9,11 @@ keys, and press `/` to filter.
 Because it owns its own input loop, real vim motions work: `gg` / `G`, `g`-chords
 that jump straight to a directory, visual selection with `V`.
 
+It can also stand in for the **desktop file dialog**: when a browser or other
+app asks you to pick a file to upload or a place to save a download, `fe`
+opens instead of the GTK/KDE dialog. See
+[fe as your file dialog](#fe-as-your-file-dialog).
+
 > **Note:** this is a normal binary, so it does **not** change your shell's
 > directory on quit. It's for browsing and file operations.
 
@@ -86,6 +91,9 @@ open-with menu picks up any of a broad set of apps found on your `PATH`.
 fe            # browse the current directory
 fe ~/code     # browse a specific directory
 fe --version  # which build is this
+
+# as a file dialog: write the chosen path(s) to OUT and quit
+fe --choose OUT [--multiple] [--directory] [--save NAME] [directory]
 ```
 
 Each row shows the name plus a size and last-modified date (`YYYY-MM-DD HH:MM`);
@@ -606,6 +614,106 @@ be noise.
 Without zoxide installed, `Z` and its palette entry stay listed but greyed out,
 and say `zoxide is not installed` rather than doing nothing.
 
+## fe as your file dialog
+
+On Linux, browsers and most desktop apps don't draw their own open/save
+dialog. They ask **xdg-desktop-portal** (a background service that provides
+desktop dialogs to apps), which hands the job to a **backend** — normally the
+GTK or KDE file chooser. The
+[termfilechooser](https://github.com/hunkyburrito/xdg-desktop-portal-termfilechooser)
+backend runs a terminal program instead, and `fe --choose` is built to be that
+program.
+
+### What it looks like
+
+The dialog is `fe` with one pane — the second one is there to copy and move
+between, which a dialog never does — and a footer saying what was asked for:
+
+| Dialog | Keys |
+|---|---|
+| Open a file | `enter` on a file chooses it; `enter` on a folder goes in |
+| Open several files | `space` / `V` to select, then `enter` or `ctrl-s` |
+| Choose a folder | go into it, then `ctrl-s` |
+| Save | go to the folder, `ctrl-s`, confirm or edit the suggested name; `enter` on an existing file replaces it (after asking) |
+| Any | `q` / `ctrl-c` cancels |
+
+Everything else still works — `/` filter, `f` deep find, `b` bookmarks, `g`
+chords, `Z` zoxide, and `a` to make a new folder before saving into it.
+
+On its own, `fe --choose OUT` writes the chosen paths to `OUT`, one per line,
+and leaves `OUT` empty when cancelled. `--multiple`, `--directory` and
+`--save NAME` select the kind of dialog. That contract is all the portal
+needs; the rest is wiring.
+
+### Setting it up
+
+1. **Install the backend.** On Arch: `yay -S xdg-desktop-portal-termfilechooser`
+   (the hunkyburrito fork). Elsewhere, see its README.
+
+2. **Install the wrapper.** [`fe-chooser.sh`](fe-chooser.sh) translates the
+   portal's arguments into `fe --choose …` and runs it in a terminal:
+
+   ```bash
+   mkdir -p ~/.config/xdg-desktop-portal-termfilechooser
+   install -m755 fe-chooser.sh ~/.config/xdg-desktop-portal-termfilechooser/
+   ```
+
+3. **Point the backend at it** — `~/.config/xdg-desktop-portal-termfilechooser/config`:
+
+   ```ini
+   [filechooser]
+   cmd=/home/YOU/.config/xdg-desktop-portal-termfilechooser/fe-chooser.sh
+   default_dir=/home/YOU/Downloads
+   open_mode=suggested
+   save_mode=last
+   ; fe's save prompt does the job of the placeholder file the portal
+   ; would otherwise create, and that file would make every save ask to replace
+   create_help_file=0
+   ; the terminal fe runs in; without this line the portal uses kitty
+   env=TERMCMD=xdg-terminal-exec --app-id=fe-chooser --title=fe --
+   ```
+
+   `xdg-terminal-exec` opens your default terminal; name one directly if you
+   prefer (`foot --app-id=fe-chooser`, `kitty --class fe-chooser`, …). The
+   terminal must stay open until `fe` exits — a launcher that hands the
+   window to an already-running terminal and returns at once won't work.
+
+4. **Make the portal use it for file dialogs only** —
+   `~/.config/xdg-desktop-portal/<desktop>-portals.conf`, e.g.
+   `hyprland-portals.conf` or `sway-portals.conf`. Keep your existing
+   `default=` line; add the `FileChooser` one:
+
+   ```ini
+   [preferred]
+   default=hyprland;gtk
+   org.freedesktop.impl.portal.FileChooser=termfilechooser
+   ```
+
+5. **Restart the portal**, then the browser:
+
+   ```bash
+   systemctl --user restart xdg-desktop-portal-termfilechooser xdg-desktop-portal
+   ```
+
+6. **Optional: float the window.** The `TERMCMD` above gives the terminal
+   the app-id `fe-chooser`, so a window rule can make it look like a dialog. For
+   Hyprland (Lua config, e.g. Omarchy):
+
+   ```lua
+   o.window("^fe-chooser$", { float = true, center = true, size = { 1100, 700 } })
+   ```
+
+To go back to the usual dialog, delete the `FileChooser` line from step 4 and
+restart the portal.
+
+Chromium-based browsers (Chrome, Brave, Chromium) and Firefox use the portal
+when it is there; Firefox may need `widget.use-xdg-desktop-portal.file-picker`
+set to `1` in `about:config`. If something doesn't open, run the wrapper by
+hand — `./fe-chooser.sh 0 0 0 ~ /tmp/out 1` should open `fe` and, after you
+choose, leave the path in `/tmp/out`. The portal logs to the user journal:
+`journalctl --user -u xdg-desktop-portal-termfilechooser` (status 127 there
+means the terminal command was not found).
+
 ## Odds and ends
 
 - The clipboard behind `y` / `x` / `p` is **in-memory**, so it lasts one session;
@@ -643,7 +751,7 @@ and reads fluently. Reading fluently is the thing an LLM is best at.
 
 What there is to lean on:
 
-- **128 tests** over roughly 4,800 lines of Go — `cd fe-tui && go test ./...`.
+- **180 tests** over roughly 6,400 lines of Go — `cd fe-tui && go test ./...`.
   They cover the destructive paths (bulk delete, yank and paste between panes)
   alongside rendering and key dispatch, but they are nowhere near exhaustive.
 - Everything destructive asks first. `d` says how many entries it is about to
@@ -653,4 +761,4 @@ What there is to lean on:
 
 Treat it like any small tool from a stranger's GitHub: fine for your own files,
 worth a backup before you point it at something you cannot lose. It is about
-7,800 lines including tests — small enough to read yourself, if that matters.
+10,600 lines including tests — small enough to read yourself, if that matters.
